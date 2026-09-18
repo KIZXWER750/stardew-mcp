@@ -924,6 +924,9 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	shopRouteTool := copilot.DefineTool("find_shop_route", "Read loaded-map route to SeedShop (Pierre) or Farm and current-map shop counters. No movement. Follow returned links only; hours/passability not guaranteed. Route exits include entry approach candidates and a token for use_route_exit.", func(p ShopRouteParams, inv copilot.ToolInvocation) (string, error) {
 		return farmReadCommand("shop_route", map[string]interface{}{"destination": p.Destination})
 	})
+	enterPierreShopTool := copilot.DefineTool("enter_pierre_shop", "From Town, move to the nearer valid Pierre entrance approach: (43,57) or (44,57). Face north, interact exactly once, and verify location changed to SeedShop. Use this fixed entrance instead of guessing another shop door.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		return a.enterPierreShop()
+	})
 	openPierreShopTool := copilot.DefineTool("open_pierre_shop", "Inside SeedShop, move to the fixed customer tile (4,19), face north toward the sales counter at (4,18), interact once, and verify that the actual Pierre ShopMenu opened. Never talks to Pierre NPC. Call before inspect_shop.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
 		return a.openPierreShop()
 	})
@@ -946,7 +949,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_storage", "open_storage", "take_storage_crop", "close_storage",
-			"find_shop_route", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
+			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
 			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot",
 			"move_to", "get_surroundings", "interact", "use_tool",
 			"use_tool_repeat", "face_direction", "select_item", "switch_tool",
@@ -958,7 +961,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectTool, storageOpenTool, storageTakeTool, storageCloseTool,
-			shopRouteTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool,
+			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool,
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,
 			useToolRepeatTool, faceDirectionTool, selectItemTool, switchToolTool,

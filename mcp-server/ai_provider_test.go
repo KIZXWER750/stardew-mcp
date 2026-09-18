@@ -64,11 +64,14 @@ func TestOpenAIActualToolRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.tools) != 37 {
+	if len(s.tools) != 38 {
 		t.Fatalf("tool count = %d", len(s.tools))
 	}
 	if _, ok := s.tools["open_pierre_shop"]; !ok {
 		t.Fatal("Pierre counter opener missing")
+	}
+	if _, ok := s.tools["enter_pierre_shop"]; !ok {
+		t.Fatal("Pierre entrance tool missing")
 	}
 	for name := range s.tools {
 		if strings.HasPrefix(name, "cheat_") {

@@ -61,6 +61,28 @@ public partial class CommandExecutor
     private int ShopInventoryCount(string id) => Game1.player.Items.Where(i=>i!=null && i.QualifiedItemId==id).Sum(i=>i.Stack);
     private int ShopHeldCount(ShopMenu s,string id) => ShopMember(s,"heldItem") is Item i && i.QualifiedItemId==id?i.Stack:0;
 
+    private CommandResponse EnterPierreShop(GameCommand c)
+    {
+        const int leftX=43,rightX=44,standY=57;
+        if(Game1.currentLocation.Name=="SeedShop") return FarmReply(c,new {status="COMPLETED",location="SeedShop"});
+        if(Game1.currentLocation.Name!="Town") throw new InvalidOperationException("Reach Town before using Pierre's fixed entrance");
+        if(!ReadPierreStatus().CanAttemptTrade) throw new InvalidOperationException("SHOP_CLOSED: "+ReadPierreStatus().Reason);
+        if(Game1.activeClickableMenu!=null) throw new InvalidOperationException("Close the current dialogue/menu before entering Pierre's shop");
+        var tile=new Point((int)Game1.player.Tile.X,(int)Game1.player.Tile.Y);
+        if(tile.Y!=standY || (tile.X!=leftX && tile.X!=rightX)) throw new InvalidOperationException($"Stand at ({leftX},{standY}) or ({rightX},{standY}); actual=({tile.X},{tile.Y})");
+        if(!Game1.player.CanMove || Game1.player.UsingTool) throw new InvalidOperationException("Player is busy at Pierre's entrance");
+        ClearMovementState();
+        Game1.player.faceDirection(0);
+        int doorY=standY-1;
+        Game1.currentCursorTile=new Vector2(tile.X,doorY);
+        Game1.lastCursorMotionWasMouse=false;
+        Game1.setMousePosition(tile.X*64+32-Game1.viewport.X,doorY*64+32-Game1.viewport.Y);
+        var action=Game1.options.actionButton.Length>0?Game1.options.actionButton[0].ToSButton():SButton.MouseRight;
+        _monitor.Log($"[SHOP ENTRANCE] approach=({tile.X},{tile.Y}), facing=up, door=({tile.X},{doorY})",LogLevel.Info);
+        _helper.Input.Press(action);
+        return new CommandResponse {Id=c.Id,Success=true,Message="Pierre entrance interaction sent; caller must verify SeedShop location"};
+    }
+
     private CommandResponse OpenPierreShopCounter(GameCommand c)
     {
         const int counterX=4,counterY=18,standX=4,standY=19;
@@ -185,6 +207,10 @@ public partial class CommandExecutor
                 if(loc==Game1.currentLocation && parts.Length>0 && (parts[0]=="Shop" || parts[0]=="SeedShop")) counters.Add(new {x,y,action});
             }
         }
+        // Pierre's Town entrance is a fixed double-door. Replace map-derived
+        // candidates so the route never points the agent to another façade tile.
+        edges.RemoveAll(e=>e.From=="Town" && e.To=="SeedShop");
+        edges.Add(("Town","SeedShop",43,56,"Pierre fixed north door"));
         var queue=new Queue<string>(); var seen=new HashSet<string>{Game1.currentLocation.Name};
         var parents=new Dictionary<string,(string From,string To,int X,int Y,string Action)>(); queue.Enqueue(Game1.currentLocation.Name);
         while(queue.Count>0) {
@@ -196,7 +222,9 @@ public partial class CommandExecutor
         while(parents.TryGetValue(cursor,out var edge)) {
             var loc=Game1.locations.FirstOrDefault(l=>l.Name==edge.From);
             var exit=new ShopExit {Id=Guid.NewGuid().ToString("N"),From=edge.From,To=edge.To,X=edge.X,Y=edge.Y,Action=edge.Action};
-            if(loc?.Map!=null && loc.Map.Layers.Count>0) {
+            if(edge.From=="Town" && edge.To=="SeedShop") {
+                exit.Approaches.Add(new Point(43,57)); exit.Approaches.Add(new Point(44,57));
+            } else if(loc?.Map!=null && loc.Map.Layers.Count>0) {
                 int width=loc.Map.Layers[0].LayerWidth,height=loc.Map.Layers[0].LayerHeight;
                 foreach(var d in new[]{new Point(0,1),new Point(-1,0),new Point(1,0),new Point(0,-1)}) {
                     var a=new Point(edge.X+d.X,edge.Y+d.Y);
@@ -204,7 +232,7 @@ public partial class CommandExecutor
                 }
             }
             _shopExits[exit.Id]=exit;
-            route.Insert(0,new {exitId=exit.Id,from=edge.From,to=edge.To,x=edge.X,y=edge.Y,action=edge.Action,approaches=exit.Approaches.Select(a=>new {x=a.X,y=a.Y})});
+            route.Insert(0,new {exitId=exit.Id,from=edge.From,to=edge.To,x=edge.X,y=edge.Y,action=edge.Action,approaches=exit.Approaches.Select(a=>new {x=a.X,y=a.Y}),preferredTool=edge.From=="Town"&&edge.To=="SeedShop"?"enter_pierre_shop":null});
             cursor=edge.From;
         }
         return FarmReply(c,new {status=!seen.Contains(target)?"BLOCKED":target=="SeedShop" && !ReadPierreStatus().CanAttemptTrade?"CLOSED_OR_UNKNOWN":"OBSERVED",location=Game1.currentLocation.Name,destination=target,route,counters,schedule=ReadPierreStatus(),accessVerified=false,note="Loaded-map links only. Verify each transition and opening hours in live gameplay. No movement performed."});
@@ -213,6 +241,7 @@ public partial class CommandExecutor
     {
         if(_activeShopExit!=null) throw new InvalidOperationException("Exit traversal already active");
         if(!_shopExits.TryGetValue(ShopText(c,"exit_id"),out var exit) || exit.From!=Game1.currentLocation.Name) throw new InvalidOperationException("Refresh route for the current location");
+        if(exit.From=="Town" && exit.To=="SeedShop") throw new InvalidOperationException("Use enter_pierre_shop for the fixed Town approaches (43,57) or (44,57)");
         if(exit.To=="SeedShop" && !ReadPierreStatus().CanAttemptTrade) throw new InvalidOperationException("SHOP_CLOSED: "+ReadPierreStatus().Reason);
         var tile=new Point((int)Game1.player.Tile.X,(int)Game1.player.Tile.Y);
         if(!exit.Approaches.Contains(tile) || Game1.activeClickableMenu!=null || Game1.player.UsingTool || !Game1.player.CanMove) throw new InvalidOperationException("Stand at a returned adjacent approach with no menu or tool action active");

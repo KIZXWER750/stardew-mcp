@@ -8,6 +8,12 @@ func TestPierreCounterContract(t *testing.T) {
 	}
 }
 
+func TestPierreTownEntranceContract(t *testing.T) {
+	if pierreTownLeftX != 43 || pierreTownRightX != 44 || pierreTownStandY != 57 {
+		t.Fatal("Pierre Town entrance contract changed")
+	}
+}
+
 func TestShopPurchaseValidation(t *testing.T) {
 	good := ShopBuyParams{ObservationID: "observed", ItemID: "(O)472", Quantity: 15, MaxTotalCost: 500, ReserveMoney: 100}
 	if _, err := good.values("run"); err != nil {

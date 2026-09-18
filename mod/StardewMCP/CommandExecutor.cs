@@ -481,6 +481,7 @@ public partial class CommandExecutor
                 "storage_take" => TakeStorageCrop(command),
                 "storage_close" => CloseStorage(command),
                 "shop_route" => FindShopRoute(command),
+                "shop_enter_pierre" => EnterPierreShop(command),
                 "shop_open_pierre" => OpenPierreShopCounter(command),
                 "shop_inspect" => InspectShop(command),
                 "shop_buy" => BuyShopItem(command),
