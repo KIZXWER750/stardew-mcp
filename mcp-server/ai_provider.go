@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -188,8 +189,24 @@ func (s *openAISession) execute(ctx context.Context, item responseItem) (string,
 	if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil || args == nil {
 		return "", errors.New("AI_TOOL_ARGUMENTS_INVALID")
 	}
+	// Models commonly serialize an omitted optional property as null. The Go
+	// handlers use zero values for omitted optional fields, so normalize only
+	// optional nulls before validating. A required null remains an error.
+	required := map[string]bool{}
+	if names, ok := t.tool.Parameters["required"].([]any); ok {
+		for _, name := range names {
+			if value, ok := name.(string); ok {
+				required[value] = true
+			}
+		}
+	}
+	for key, value := range args {
+		if value == nil && !required[key] {
+			delete(args, key)
+		}
+	}
 	if err := t.schema.Validate(args); err != nil {
-		return "", fmt.Errorf("AI_TOOL_ARGUMENTS_INVALID: %s", item.Name)
+		return "", fmt.Errorf("AI_TOOL_ARGUMENTS_INVALID: %s; provided=%s required=%s", item.Name, sortedMapKeys(args), sortedBoolKeys(required))
 	}
 	if properties, ok := t.tool.Parameters["properties"].(map[string]any); ok {
 		for key := range args {
@@ -219,6 +236,24 @@ func (s *openAISession) execute(ctx context.Context, item responseItem) (string,
 	}
 	s.calls[item.CallID] = rememberedCall{signature, output}
 	return output, nil
+}
+
+func sortedMapKeys(values map[string]any) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ",")
+}
+
+func sortedBoolKeys(values map[string]bool) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ",")
 }
 
 func (s *openAISession) SendAndWait(ctx context.Context, options copilot.MessageOptions) (*copilot.SessionEvent, error) {
@@ -267,7 +302,16 @@ func (s *openAISession) SendAndWait(ctx context.Context, options copilot.Message
 		call := calls[0]
 		output, err := s.execute(ctx, call)
 		if err != nil {
-			return nil, err
+			// Argument errors happen before game code runs. Return a structured
+			// correction to the model instead of terminating the whole goal.
+			message := err.Error()
+			if strings.HasPrefix(message, "AI_TOOL_ARGUMENTS_INVALID") ||
+				strings.HasPrefix(message, "AI_TOOL_UNKNOWN_ARGUMENT") ||
+				strings.HasPrefix(message, "AI_TOOL_NOT_ALLOWED") {
+				output = "TOOL_ARGUMENT_ERROR: " + message + ". Correct the function name and provide every required field with the documented JSON type. Omit unused optional fields instead of sending null. No game action was executed."
+			} else {
+				return nil, err
+			}
 		}
 		s.history = append(s.history, rawJSON(map[string]any{"type": "function_call_output", "call_id": call.CallID, "output": output}))
 	}

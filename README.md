@@ -1,6 +1,8 @@
-# Stardew MCP 1.9.0 — OpenAI Luna medium
+# Stardew MCP 1.9.1 — OpenAI Luna medium
 
 1.8.0 농사·자동 물 보충·씨앗 구매·수확물 판매·일반 상자 꺼내기·F6/F7 기능을 유지하면서 판단 모델 호출부를 추가했습니다. 기본은 OpenAI Responses API의 `gpt-5.6-luna`, reasoning effort는 **medium 고정**입니다. effort 변경 UI/플래그/설정은 없습니다. 애니메이션·농사 실행 알고리즘은 이번 변경 범위가 아닙니다.
+
+1.9.1은 OpenAI가 선택 함수 인수에 `null`을 보낼 때 발생하던 `AI_TOOL_ARGUMENTS_INVALID`를 수정합니다. 선택 필드의 `null`은 생략값으로 처리하고, 실행 전에 발견한 잘못된 인수는 게임 행동 없이 모델에 돌려보내 올바른 함수 호출로 교정합니다.
 
 ## 인증과 공급자
 

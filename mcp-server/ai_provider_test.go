@@ -169,6 +169,52 @@ func TestOpenAIToolValidationAndDedup(t *testing.T) {
 	}
 }
 
+func TestOpenAIOptionalNullIsOmitted(t *testing.T) {
+	type optionalParams struct {
+		X    int    `json:"x"`
+		Note string `json:"note,omitempty"`
+	}
+	executions := 0
+	tool := copilot.DefineTool("optional", "test optional fields", func(p optionalParams, _ copilot.ToolInvocation) (string, error) {
+		executions++
+		if p.X != 1 || p.Note != "" {
+			t.Fatal("optional null was not treated as omitted")
+		}
+		return "ok", nil
+	})
+	s, err := newOpenAISession(aiConfig{Provider: "openai", Model: openAIModel, key: "test-key"}, &copilot.SessionConfig{AvailableTools: []string{"optional"}, Tools: []copilot.Tool{tool}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := s.execute(context.Background(), responseItem{Name: "optional", CallID: "optional-null", Arguments: `{"x":1,"note":null}`})
+	if err != nil || output != "ok" || executions != 1 {
+		t.Fatalf("optional null normalization failed: output=%q err=%v executions=%d", output, err, executions)
+	}
+}
+
+func TestOpenAIArgumentErrorCanBeCorrectedBeforeAction(t *testing.T) {
+	executions, requests := 0, 0
+	s := testAISession(t, func() string { executions++; return "verified" })
+	s.client.Transport = testTransport(func(*http.Request) (*http.Response, error) {
+		requests++
+		switch requests {
+		case 1:
+			return apiTestResponse(200, `{"status":"completed","output":[{"type":"function_call","call_id":"bad","name":"observe","arguments":"{\"x\":\"wrong\"}"}]}`), nil
+		case 2:
+			return apiTestResponse(200, `{"status":"completed","output":[{"type":"function_call","call_id":"good","name":"observe","arguments":"{\"x\":1}"}]}`), nil
+		default:
+			return apiTestResponse(200, `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"GOAL COMPLETE"}]}]}`), nil
+		}
+	})
+	result, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executions != 1 || requests != 3 || result.Data.(*copilot.AssistantMessageData).Content != "GOAL COMPLETE" {
+		t.Fatal("unsafe correction behavior")
+	}
+}
+
 func TestOpenAIHTTPFailuresDoNotRetryOrLeak(t *testing.T) {
 	for _, status := range []int{301, 400, 401, 403, 404, 429, 500, 503} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
