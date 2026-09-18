@@ -944,10 +944,12 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		defer a.toolMutex.Unlock()
 		return farmReadCommand("shop_exit", map[string]interface{}{"exit_id": p.ExitID})
 	})
+	lifeTools := a.defineLifeTools()
 	// Create session with tools (using embedded knowledge)
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
+			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_storage", "open_storage", "take_storage_crop", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
 			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot",
@@ -957,7 +959,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Model: "gpt-4.1",
 		SystemMessage: &copilot.SystemMessageConfig{
-			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules,
+			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectTool, storageOpenTool, storageTakeTool, storageCloseTool,
@@ -984,6 +986,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			// Note: cheatTillPatternTool removed - AI should design its own patterns using cheatHoeCustomPatternTool
 		},
 	}
+	config.Tools = append(config.Tools, lifeTools...)
 	return config
 }
 

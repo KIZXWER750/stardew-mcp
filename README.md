@@ -1,4 +1,4 @@
-# Stardew MCP 1.9.3 — OpenAI Luna medium
+# Stardew MCP 1.10.0 — 생활·회복·귀가·수면 함수
 
 1.8.0 농사·자동 물 보충·씨앗 구매·수확물 판매·일반 상자 꺼내기·F6/F7 기능을 유지하면서 판단 모델 호출부를 추가했습니다. 기본은 OpenAI Responses API의 `gpt-5.6-luna`, reasoning effort는 **medium 고정**입니다. effort 변경 UI/플래그/설정은 없습니다. 애니메이션·농사 실행 알고리즘은 이번 변경 범위가 아닙니다.
 
@@ -7,6 +7,21 @@
 1.9.2는 피에르 상점 진입을 전용 `open_pierre_shop` 함수로 처리합니다. `SeedShop` 내부에서 `(4,19)`로 이동하고 북쪽의 판매 카운터 `(4,18)`를 한 번 상호작용하며, 실제 `ShopMenu`가 열린 경우에만 성공합니다. 피에르 NPC 대화는 구매 메뉴로 인정하지 않습니다.
 
 1.9.3은 마을에서 피에르 잡화점으로 들어가는 경로를 고정합니다. `enter_pierre_shop`은 `Town`의 유효한 접근 칸 `(43,57)`과 `(44,57)`만 사용하고, 가까운 접근 가능 칸에서 북쪽으로 한 번 상호작용한 뒤 실제 `SeedShop` 전환을 검증합니다.
+
+1.10.0은 AI가 하루 작업을 중단하거나 회복하고 귀가해 잠드는 데 필요한 첫 생활 함수 묶음을 추가합니다.
+
+| 함수 | 역할 |
+| --- | --- |
+| `assess_daily_status` | 현재 시각·체력·에너지·위치를 읽고 보수적인 다음 행동을 제안 |
+| `find_food_options` | 실제 인벤토리에서 회복 가능한 음식과 슬롯·ID·수량을 조회 |
+| `find_recovery_options` | 음식·수면·목욕탕 자동화 지원 여부를 한 번에 조회 |
+| `consume_food` | 관측한 음식 한 개만 일반 입력으로 먹고 수량·회복 결과 검증 |
+| `find_home_route` | 현재 지역에서 `FarmHouse`까지 로드된 맵 연결을 읽기 전용으로 조회 |
+| `return_home` | 관측한 출구만 따라 정상 이동하고 실제 `FarmHouse` 진입을 검증 |
+| `schedule_bedtime` | 경로 홉과 안전 여유를 바탕으로 보수적인 귀가 출발 시각 계산 |
+| `sleep_until_morning` | 실제 플레이어 침대의 좌우로 접근해 수면 확인창만 승인하고 다음 아침 검증 |
+
+목욕탕 자동 회복은 탈의실 전환과 수영 상태를 별도 인게임 검증해야 하므로 이번 버전에서는 실행하지 않습니다. `find_recovery_options`가 이를 명시적으로 알려 AI가 지원되지 않는 행동을 추측하지 않게 합니다.
 
 ## 인증과 공급자
 
@@ -45,7 +60,7 @@ GitHub 소스 ZIP에는 exe가 없으며 설치 중 빌드합니다. 별도 배�
 
 ## 구현과 안전장치
 
-- 기존 정상 플레이 함수와 피에르 전용 진입·카운터 함수, 총 **38개**의 정의와 실행기를 사용합니다. 치트 도구와 치트 매뉴얼은 OpenAI에 노출하지 않습니다.
+- 기존 정상 플레이 함수와 새 생활 함수 8개, 총 **46개**의 정의와 실행기를 사용합니다. 치트 도구와 치트 매뉴얼은 OpenAI에 노출하지 않습니다.
 - 함수 인수는 JSON Schema와 기존 도메인 검증을 통과해야 합니다. 알 수 없는 함수/인수는 차단합니다.
 - `parallel_tool_calls=false`; 동시 함수 묶음 응답은 실행 전에 거부합니다.
 - 함수 호출 ID별 결과를 재사용해 같은 ID의 재전달로 행동이 중복되지 않게 합니다. 다른 ID로 반복된 의미상 행동은 기존 농사/거래 원장과 실행 전 관측으로 보호합니다. 모든 행동에 영구 exactly-once를 보장하지는 않습니다.
@@ -55,6 +70,6 @@ GitHub 소스 ZIP에는 exe가 없으며 설치 중 빌드합니다. 별도 배�
 - `store=false`; 같은 작업 중 reasoning encrypted content와 함수 결과는 메모리에서만 이어 보냅니다. 키와 원본 API 오류 본문은 로그에 기록하지 않습니다. OpenAI 서비스 자체 데이터 보존 정책을 대체하는 설정은 아닙니다.
 - 새 OpenAI HTTP 코드가 모델 통신을 맡고, 기존 Copilot SDK의 함수 정의/결과 타입은 호환 어댑터로 재사용합니다. Copilot SDK를 프로젝트 의존성에서 제거한 것은 아닙니다.
 
-API 접근과 인게임 실행은 아직 미검증입니다. 수행 범위는 VALIDATION.md에 기록했습니다. 기존 함수 계약과 게임 제약은 FUNCTIONS.md를 참고하세요.
+이번 환경에서는 새 생활 함수의 인게임 실행이 미검증입니다. 수행 범위는 VALIDATION.md에 기록했습니다. 기존 함수 계약과 게임 제약은 FUNCTIONS.md를 참고하세요.
 
 공식 계약: [Luna 모델](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [Function calling](https://developers.openai.com/api/docs/guides/function-calling).
