@@ -211,6 +211,16 @@ public partial class CommandExecutor
         // candidates so the route never points the agent to another façade tile.
         edges.RemoveAll(e=>e.From=="Town" && e.To=="SeedShop");
         edges.Add(("Town","SeedShop",43,56,"Pierre fixed north door"));
+        // The standard farmhouse exterior door is an event/action tile which
+        // isn't exposed through location.warps or location.doors on every game
+        // build. Keep an observed map edge when available; otherwise add the
+        // verified standard-farm entry used by this bridge. The caller still
+        // has to path to an adjacent tile, interact normally, and verify that
+        // the actual location changed to FarmHouse.
+        if(!edges.Any(e=>e.From=="Farm" && e.To=="FarmHouse")) {
+            edges.Add(("Farm","FarmHouse",64,14,"Standard farmhouse fixed north door"));
+            _monitor.Log("[HOME ROUTE] Farm->FarmHouse map edge unavailable; using verified standard door=(64,14), south approach=(64,15)",LogLevel.Info);
+        }
         var queue=new Queue<string>(); var seen=new HashSet<string>{Game1.currentLocation.Name};
         var parents=new Dictionary<string,(string From,string To,int X,int Y,string Action)>(); queue.Enqueue(Game1.currentLocation.Name);
         while(queue.Count>0) {
