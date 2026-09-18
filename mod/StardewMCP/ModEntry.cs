@@ -10,6 +10,7 @@ public class ModEntry : Mod
     private WebSocketServer? _wsServer;
     private GameStateSerializer? _stateSerializer;
     private CommandExecutor? _commandExecutor;
+    private IngameAgent? _agentUi;
 
     /// <summary>The mod entry point.</summary>
     public override void Entry(IModHelper helper)
@@ -21,6 +22,25 @@ public class ModEntry : Mod
         _commandExecutor = new CommandExecutor(helper, Monitor);
         _stateSerializer.SetCommandExecutor(_commandExecutor); // Wire up for movement state
         _wsServer = new WebSocketServer(Monitor, _stateSerializer, _commandExecutor);
+        _agentUi = new IngameAgent(helper,Monitor,_commandExecutor);
+        helper.Events.Input.ButtonPressed += (_,e) => {
+            if(!Context.IsWorldReady || _agentUi==null) return;
+            if(e.Button==_agentUi.Config.CancelKey) {Helper.Input.Suppress(e.Button);_agentUi.Cancel();}
+            if(e.Button==_agentUi.Config.OpenKey && Game1.activeClickableMenu==null) {
+                Helper.Input.Suppress(e.Button);
+                if(_agentUi.Busy) Game1.addHUDMessage(new HUDMessage("작업 중입니다. 취소: "+_agentUi.Config.CancelKey));
+                else Game1.activeClickableMenu=new AgentMenu(_agentUi);
+            }
+        };
+        helper.Events.Display.RenderedHud += (_,e) => {
+            if(!Context.IsWorldReady || _agentUi==null || !_agentUi.Busy) return;
+            string text=_agentUi.Status;if(text.Length>120) text=text.Substring(0,120)+"…";
+            string display=Game1.parseText("AI 작업\n"+text+"\n취소: "+_agentUi.Config.CancelKey,Game1.smallFont,580);
+            var panel=new Microsoft.Xna.Framework.Rectangle(12,88,620,132);
+            e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.82f);
+            e.SpriteBatch.DrawString(Game1.smallFont,display,new Microsoft.Xna.Framework.Vector2(panel.X+14,panel.Y+12),Microsoft.Xna.Framework.Color.White);
+        };
+        System.AppDomain.CurrentDomain.ProcessExit += (_,_) => _agentUi?.CloseHost();
 
         // Register events
         helper.Events.GameLoop.GameLaunched += OnGameLaunched;
@@ -40,11 +60,13 @@ public class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        _agentUi?.StartHost();
         Monitor.Log($"Save loaded: {Game1.player.Name} on {Game1.player.farmName} Farm", LogLevel.Info);
     }
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
+        _agentUi?.Tick();
         // Only process when game is running
         if (!Context.IsWorldReady)
             return;
@@ -65,6 +87,8 @@ public class ModEntry : Mod
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
+        _agentUi?.Shutdown();
+        _commandExecutor?.CancelFarmOnTitle();
         Monitor.Log("Returned to title screen", LogLevel.Info);
     }
 }

@@ -33,7 +33,7 @@ public class WebSocketServer
     {
         try
         {
-            _server = new WebSocketSharp.Server.WebSocketServer(port);
+            _server = new WebSocketSharp.Server.WebSocketServer(System.Net.IPAddress.Loopback, port);
             _server.AddWebSocketService<GameBridge>("/game", () =>
             {
                 var bridge = new GameBridge(_monitor, _stateSerializer, _commandExecutor);
@@ -151,7 +151,7 @@ public class GameBridge : WebSocketBehavior
             Params = message.Params ?? new Dictionary<string, object>(),
             OnComplete = response =>
             {
-                SendResponse(response);
+                SendResponse(response, !(message.Action ?? "").StartsWith("farm_", StringComparison.Ordinal));
             }
         };
 
@@ -181,7 +181,23 @@ public class GameBridge : WebSocketBehavior
         }
     }
 
-    private void SendResponse(CommandResponse response)
+    // Command callbacks are invoked by the main-thread command executor.
+    // Keep the result deliverable even if diagnostic state serialization fails.
+    private object? CaptureResponseState()
+    {
+        try
+        {
+            if (!StardewModdingAPI.Context.IsWorldReady) return null;
+            return _stateSerializer.GetGameState();
+        }
+        catch (Exception ex)
+        {
+            _monitor.Log($"Command state capture failed: {ex.Message}", StardewModdingAPI.LogLevel.Warn);
+            return null;
+        }
+    }
+
+    private void SendResponse(CommandResponse response, bool includeState = true)
     {
         try
         {
@@ -191,7 +207,8 @@ public class GameBridge : WebSocketBehavior
                 Type = "response",
                 Success = response.Success,
                 Message = response.Message,
-                Data = response.Data
+                Data = response.Data,
+                State = includeState ? CaptureResponseState() : null
             };
             Send(JsonSerializer.Serialize(wsResponse, JsonOptions));
         }
@@ -241,6 +258,7 @@ public class WebSocketResponse
     public bool Success { get; set; }
     public string? Message { get; set; }
     public object? Data { get; set; }
+    public object? State { get; set; }
 }
 
 #endregion

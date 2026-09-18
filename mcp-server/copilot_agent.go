@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -31,7 +33,7 @@ const gameKnowledge = `# Stardew Valley AI Agent: High-Intelligence Protocol
 - ~ : WATER (Blocked)
 - T : TREE / BUSH (Blocked - Chop with AXE to clear)
 - O : OBJECT / STONE / TWIG / WEED (Blocked - Break with Pickaxe/Axe/Scythe)
-- C : CROP (Blocked - Do not trample if possible)
+- C : CROP (Check terrain IsPassable; walk across passable crops. Walking is not tool use. Never destroy crops.)
 - H : HOE DIRT (Walkable)
 - " : GRASS (Walkable - Cut with Scythe for 0 energy)
 - > : WARP / DOOR / ENTRANCE
@@ -260,10 +262,21 @@ Grid: .#####.\n#.....#\n#.#.#.#\n#.....#\n#.###.#\n#.....#\n.#####.
 
 // StardewAgent manages the autonomous AI session using GitHub Copilot SDK
 type StardewAgent struct {
-	client      *copilot.Client
-	session     *copilot.Session
-	currentPlan string
-	toolMutex   sync.Mutex // Prevents concurrent tool execution
+	requestMu           sync.Mutex
+	requestCancel       context.CancelFunc
+	farmContext         context.Context
+	observationCount    int
+	farmLedger          map[string]farmAttempt
+	farmEpoch           int
+	farmActions         int
+	farmRefillEpoch     int
+	farmWaterGeneration int
+	verifyPlanting      bool
+	verifyWatering      bool
+	client              *copilot.Client
+	session             *copilot.Session
+	currentPlan         string
+	toolMutex           sync.Mutex // Prevents concurrent tool execution
 }
 
 // NewStardewAgent creates a new Stardew agent using Copilot SDK
@@ -272,7 +285,7 @@ func NewStardewAgent() (*StardewAgent, error) {
 
 	// Create client with default options
 	client := copilot.NewClient(nil)
-	if err := client.Start(); err != nil {
+	if err := client.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to start copilot client: %w", err)
 	}
 
@@ -282,6 +295,19 @@ func NewStardewAgent() (*StardewAgent, error) {
 }
 
 func (a *StardewAgent) StartSession(initialGoal string) error {
+	a.requestMu.Lock()
+	a.farmLedger = make(map[string]farmAttempt)
+	a.farmEpoch = 0
+	a.farmRefillEpoch = 0
+	a.farmWaterGeneration = 0
+	a.farmActions = 0
+	a.requestMu.Unlock()
+	if strings.Contains(initialGoal, "[SLEEP_VERIFIED]") {
+		go runVerifiedSleep()
+		return nil
+	}
+	a.verifyPlanting = strings.Contains(initialGoal, "[VERIFY_PLANT_3X5]")
+	a.verifyWatering = strings.Contains(initialGoal, "[VERIFY_WATER_3X5]")
 	log.Printf("[AGENT AGENT] Session started with goal: %s", initialGoal)
 
 	// Define tools inline (matches original implementation pattern)
@@ -296,7 +322,26 @@ func (a *StardewAgent) StartSession(initialGoal string) error {
 			if state == nil {
 				return "Disconnected", nil
 			}
-			return a.formatGameStateContext(state), nil
+			a.requestMu.Lock()
+			a.observationCount++
+			limitReached := a.observationCount > 60
+			if limitReached && a.requestCancel != nil {
+				a.requestCancel()
+			}
+			a.requestMu.Unlock()
+			if limitReached {
+				return "TASK_BLOCKED: observation budget exhausted; stopping this request", nil
+			}
+			result := a.formatGameStateContext(state)
+			if a.verifyPlanting {
+				_, report := inspectTargetPlanting(state)
+				result += "\n" + report
+			}
+			if a.verifyWatering {
+				_, report := inspectTargetWatering(state)
+				result += "\n" + report
+			}
+			return result, nil
 		})
 
 	interactTool := copilot.DefineTool("interact", "Interact with tile in front",
@@ -338,6 +383,20 @@ func (a *StardewAgent) StartSession(initialGoal string) error {
 	eatItemTool := copilot.DefineTool("eat_item", "Eat food from inventory",
 		func(params SlotParams, inv copilot.ToolInvocation) (string, error) {
 			resp, _ := gameClient.SendCommand("eat_item", map[string]interface{}{"slot": params.Slot})
+			return resp.Message, nil
+		})
+
+	exitHouseTool := copilot.DefineTool(
+		"exit_house",
+		"Exit FarmHouse only. First stand at (3,11), then this holds the normal down movement key until the exit warp activates.",
+		func(params NoParams, inv copilot.ToolInvocation) (string, error) {
+			resp, err := gameClient.SendCommand("exit_house", nil)
+			if err != nil {
+				return "EXIT_BLOCKED: " + err.Error(), nil
+			}
+			if resp == nil {
+				return "EXIT_BLOCKED: no response from mod", nil
+			}
 			return resp.Message, nil
 		})
 
@@ -776,17 +835,118 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			return resp.Message, nil
 		})
 
+	inspectAreaTool := copilot.DefineTool("inspect_area", "Read every tile of an explicit Farm rectangle (1..64 tiles), including diggable, hoe dirt, watered and protected obstacles. Read-only. No guessed coordinates.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) { return a.inspectFarmArea(p) })
+	findPlotCandidatesTool := copilot.DefineTool("find_plot_candidates", "Search observed Farm coordinates around an anchor for ranked rectangles of the requested size. Returns only diggable candidates without protected conflicts, plus accessibility, removable-obstacle, existing-soil and distance data. Read-only; AI must choose one returned candidate before inspect_area or execution.",
+		func(p CandidateParams, inv copilot.ToolInvocation) (string, error) { return a.findPlotCandidates(p) })
+	preparePlotTool := copilot.DefineTool("prepare_plot", "Prepare an explicit Farm rectangle: clear only safe weeds, grass, twigs and small stones, then hoe unprepared tiles. Internally moves, selects tools, faces, uses once and verifies each result. Blocks until final structured result. Never repeat completed tiles. Trees and facilities preserved. Pauses for energy/time; same rectangle resumes from current state.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("prepare", p)
+		})
+	waterPlotTool := copilot.DefineTool("water_plot", "Water an explicit Farm rectangle. Skips already watered soil; preserves crops. Moves and uses normal watering can internally, verifies each change. Returns PAUSED if empty can, low energy or late. Does not refill or till. Blocks until final structured result.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("water", p)
+		})
+	clearAreaTool := copilot.DefineTool("clear_area", "Remove supported weeds, grass, stones and twigs only; preserve crops, existing soil and facilities. Never till. Returns terminal structured task result; executes all movement internally.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("clear", p)
+		})
+	tillPlotTool := copilot.DefineTool("till_plot", "Till empty diggable tiles only. Never clear obstacles. Skip existing HoeDirt. Returns terminal structured task result; executes all movement internally.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("till", p)
+		})
+	plantPlotTool := copilot.DefineTool("plant_plot", "Plant inventory seeds in empty HoeDirt, using seed_item_id. Preserve existing crops; report exclusions. No buying or tilling. Returns terminal structured task result; executes all movement internally.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("plant", p)
+		})
+	harvestPlotTool := copilot.DefineTool("harvest_plot", "Harvest ready crops only, verify crop changes. Preserve immature crops. Reports yield inventory deltas and drops separately. No replanting. Returns terminal structured task result; executes all movement internally.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("harvest", p)
+		})
+	analyzeFarmTool := copilot.DefineTool("analyze_farm_work", "Read-only preflight for a Farm rectangle and operation: eligible/already satisfied/blocked tiles, tools, seed count, water and energy reserve. Analysis never changes the world; execution rechecks.",
+		func(p AnalyzeParams, inv copilot.ToolInvocation) (string, error) { return a.analyzeFarm(p) })
+	waterSourcesTool := copilot.DefineTool("find_water_sources", "Read-only search for reachable watering-can refill source candidates around the current player on Farm. Returns source coordinates and approach path lengths. No movement.",
+		func(p WaterSourceParams, inv copilot.ToolInvocation) (string, error) { return a.findWaterSources(p) })
+	refillCanTool := copilot.DefineTool("refill_watering_can", "Move to an observed Farm water source and use the watering can once. Verify actual water increase; no synthetic resource changes. After completion, resume the paused water_plot on its original area. Does not water crops itself.",
+		func(p RefillParams, inv copilot.ToolInvocation) (string, error) { return a.refillCan(p) })
+	shopScope := newShopScope()
+	shopStatusTool := copilot.DefineTool("get_shop_status", "Read Pierre's actual date/time, Wednesday exceptions, festival calendar and live shop-menu state. Trading normally 09:00..17:00; building hours are not trading hours. Check before a shopping/selling trip; closed or unknown means no automatic trip just to trade.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		return farmReadCommand("shop_status", nil)
+	})
+	saleInspectTool := copilot.DefineTool("inspect_sellable_crops", "Read inventory harvested crop-category stacks, quality, estimated unit price and quote IDs. No sale; excludes seeds, tools, quest items and resources. Respect user food/gift/reserve exclusions.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		return farmReadCommand("crop_sale_inspect", nil)
+	})
+	saleTool := copilot.DefineTool("sell_crop_stack", "Sell exactly the observed WHOLE crop stack at Pierre's open shop through normal menu input. Requires quote_id, keep_quantity across this inventory item ID, and minimum_total_price. Never split stacks. Verify removal and money gain; report partial/uncertain results without retry.", func(p CropSaleParams, inv copilot.ToolInvocation) (string, error) {
+		v, e := p.values()
+		if e != nil {
+			return "TASK_BLOCKED: " + e.Error(), nil
+		}
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("crop_sell", v)
+	})
+	storageInspectTool := copilot.DefineTool("inspect_storage", "Read nearby ordinary player chest positions; crop contents only from an actually opened chest. Returns chest IDs or crop-stack quote IDs. No remote access.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		return farmReadCommand("storage_inspect", nil)
+	})
+	storageOpenTool := copilot.DefineTool("open_storage", "After move_to to a cardinally adjacent tile of an observed regular chest, interact once. INPUT_SENT is not success: inspect_storage must confirm open contents.", func(p StorageOpenParams, inv copilot.ToolInvocation) (string, error) {
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("storage_open", map[string]interface{}{"chest_id": p.ChestID})
+	})
+	storageTakeTool := copilot.DefineTool("take_storage_crop", "Take one observed WHOLE crop stack from the open ordinary chest using menu clicks. Requires one empty inventory slot and keep_in_chest reserve per item ID. Verifies both inventories; never split or take non-crops.", func(p StorageTakeParams, inv copilot.ToolInvocation) (string, error) {
+		v, e := p.values()
+		if e != nil {
+			return "TASK_BLOCKED: " + e.Error(), nil
+		}
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("storage_take", v)
+	})
+	storageCloseTool := copilot.DefineTool("close_storage", "Close an opened chest only with an empty cursor, without discarding items.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("storage_close", nil)
+	})
+
+	shopRouteTool := copilot.DefineTool("find_shop_route", "Read loaded-map route to SeedShop (Pierre) or Farm and current-map shop counters. No movement. Follow returned links only; hours/passability not guaranteed. Route exits include entry approach candidates and a token for use_route_exit.", func(p ShopRouteParams, inv copilot.ToolInvocation) (string, error) {
+		return farmReadCommand("shop_route", map[string]interface{}{"destination": p.Destination})
+	})
+	shopInspectTool := copilot.DefineTool("inspect_shop", "Inspect an already open shop: actual seed IDs, prices, stock, money and a one-use observation ID. No purchase.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		return farmReadCommand("shop_inspect", nil)
+	})
+	shopBuyTool := copilot.DefineTool("buy_shop_item", "Buy 1..99 observed seeds from the open shop, using normal menu clicks. Requires an empty inventory slot, max_total_cost and reserve_money. Verifies gold and inventory; same item/quantity/budget request in this goal returns the previous receipt. Never repeat an uncertain or partial purchase.", func(p ShopBuyParams, inv copilot.ToolInvocation) (string, error) { return a.buyShopItem(shopScope, p) })
+	shopCloseTool := copilot.DefineTool("close_shop", "Close the shop only with no item held on cursor. Does not buy, sell or discard items.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("shop_close", nil)
+	})
+	shopExitTool := copilot.DefineTool("use_route_exit", "After moving to an observed exit approach, cross that exit using normal input. Requires exit_id from find_shop_route. Waits at most 5 seconds and verifies destination. Not a teleport. Move to a returned approach first.", func(p ShopExitParams, inv copilot.ToolInvocation) (string, error) {
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("shop_exit", map[string]interface{}{"exit_id": p.ExitID})
+	})
 	// Create session with tools (using embedded knowledge)
-	session, err := a.client.CreateSession(&copilot.SessionConfig{
+	session, err := a.client.CreateSession(context.Background(), &copilot.SessionConfig{
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+		AvailableTools: []string{
+			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_storage", "open_storage", "take_storage_crop", "close_storage",
+			"find_shop_route", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
+			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot",
+			"move_to", "get_surroundings", "interact", "use_tool",
+			"use_tool_repeat", "face_direction", "select_item", "switch_tool",
+			"eat_item", "enter_door", "exit_house", "find_best_target", "clear_target",
+		},
 		Model: "gpt-4.1",
 		SystemMessage: &copilot.SystemMessageConfig{
-			Content: gameKnowledge,
+			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules,
 		},
 		Tools: []copilot.Tool{
+			shopStatusTool, saleInspectTool, saleTool, storageInspectTool, storageOpenTool, storageTakeTool, storageCloseTool,
+			shopRouteTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool,
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,
 			useToolRepeatTool, faceDirectionTool, selectItemTool, switchToolTool,
-			eatItemTool, enterDoorTool, findBestTargetTool, clearTargetTool,
+			eatItemTool, enterDoorTool, exitHouseTool, findBestTargetTool, clearTargetTool,
 			// Cheat mode tools
 			cheatEnableTool, cheatDisableTool, cheatWarpTool, cheatSetMoneyTool,
 			cheatAddItemTool, cheatSetEnergyTool, cheatSetHealthTool,
@@ -815,6 +975,24 @@ Surrounding area is auto-cleared so pattern is visible.`,
 }
 
 func (a *StardewAgent) runAutonomousLoop(goal string) {
+	defer func() {
+		if token := os.Getenv("STARDEW_UI_RUN"); token != "" {
+			log.Print("[UI WORKER FINISHED] " + token)
+		}
+	}()
+	dailyWatered := false
+	verifyPlot := strings.Contains(goal, "[VERIFY_PLOT_3X5]") || a.verifyPlanting || a.verifyWatering
+	inspectTarget := inspectTargetPlot
+	if a.verifyPlanting {
+		inspectTarget = inspectTargetPlanting
+	}
+	if a.verifyWatering {
+		inspectTarget = inspectTargetWatering
+	}
+	requestCount := 0
+	plotChecks := 0
+	plotBestCount := -1
+	plotStalledChecks := 0
 	a.currentPlan = "Initializing..."
 	consecutiveErrors := 0
 	goalCompleted := false
@@ -826,10 +1004,38 @@ func (a *StardewAgent) runAutonomousLoop(goal string) {
 		iteration++
 
 		// Stop if goal was completed
-		if goalCompleted {
-			log.Printf("[AGENT LOOP] Goal completed! Stopping autonomous loop.")
-			time.Sleep(30 * time.Second) // Wait before potentially starting new goal
-			goalCompleted = false        // Reset for next iteration
+		if strings.Contains(goal, "[HOME_AND_SLEEP]") {
+			current := freshGameState()
+			if current != nil && current.Player.Location == "FarmHouse" {
+				log.Printf("[HOME AND SLEEP] Farmhouse entry verified. Starting bed routine.")
+				runVerifiedSleep()
+				return
+			}
+		}
+
+		if strings.Contains(goal, "[WATER_AND_SLEEP]") {
+			current := freshGameState()
+			if current != nil && current.Player.Location == "Farm" {
+				count, report := inspectTargetWatering(current)
+				log.Printf("[DAILY WATER CHECK] %s", report)
+				if count == 15 {
+					dailyWatered = true
+				}
+			}
+
+			if dailyWatered && current != nil &&
+				current.Player.Location == "FarmHouse" {
+				log.Printf("[DAILY] Watering verified and home reached. Starting sleep.")
+				runVerifiedSleep()
+				return
+			}
+		}
+
+		if goalCompleted &&
+			!strings.Contains(goal, "[HOME_AND_SLEEP]") &&
+			!strings.Contains(goal, "[WATER_AND_SLEEP]") {
+			log.Printf("[AGENT LOOP] Goal completed. Autonomous loop stopped.")
+			return
 		}
 
 		log.Printf("[AGENT LOOP] Iteration %d - Getting game state...", iteration)
@@ -877,12 +1083,33 @@ func (a *StardewAgent) runAutonomousLoop(goal string) {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		if !state.Player.CanMove {
+		if !state.Player.CanMove && !state.Player.ShopOpen {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
 		gameContext := a.formatGameStateContext(state)
+		if verifyPlot {
+			count, report := inspectTarget(freshGameState())
+			log.Printf("[PLOT CHECK]\n%s", report)
+			if count == 15 {
+				log.Printf("[PLOT VERIFIED] 15/15 tiles meet the selected verification mode. Stopping.")
+				return
+			}
+			plotChecks++
+			if count > plotBestCount {
+				plotBestCount = count
+				plotStalledChecks = 0
+			} else {
+				plotStalledChecks++
+			}
+			if plotStalledChecks >= 3 || plotChecks > 6 {
+				log.Printf("[PLOT INCOMPLETE] Stopping after limited attempts; NOT complete.")
+				return
+			}
+			gameContext += "\n\nPROGRAM-VERIFIED TARGET STATUS:\n" + report
+			gameContext += "\nWork only on unconfirmed target tiles. Inspect each before acting. Preserve crops and placed objects. Do not hoe a tile already listed as hoe_dirt. If impossible, explain why."
+		}
 
 		// Get season-appropriate seed suggestions (use numeric IDs only, not (O) prefix)
 		seasonSeeds := map[string]string{
@@ -904,16 +1131,14 @@ GOAL: %s
 
 SEASON INFO: Current season is %s. Valid seeds: %s
 
-CRITICAL EXECUTION ORDER - These tools have dependencies and MUST be called SEQUENTIALLY (one at a time, waiting for each to complete):
-1. cheat_mode_enable (FIRST - enables all other cheats)
-2. cheat_clear_debris, cheat_cut_trees, cheat_mine_rocks (can be parallel - clearing the land)
-3. cheat_hoe_all (MUST complete before planting - creates hoed tiles)
-4. cheat_plant_seeds (MUST run AFTER hoe_all completes - needs hoed tiles to exist)
-5. cheat_grow_crops (MUST run AFTER plant_seeds - needs crops to exist)
-6. cheat_harvest_all (MUST run AFTER grow_crops - needs mature crops)
-
-DO NOT call plant_seeds, grow_crops, or harvest_all in parallel - they depend on each other!
-After ALL tools complete successfully, respond with "GOAL COMPLETE".`,
+NORMAL GAMEPLAY:
+Use only the standard gameplay tools available in this session.
+Never enable cheats or modify the world through cheat commands.
+Observe the current game state, then choose actions for the stated GOAL.
+Execute actions sequentially and verify their results.
+Track progress across turns. Do not repeat actions already completed.
+Respond with "GOAL COMPLETE" only after observing that the stated goal is achieved.
+If a function blocks, inspect its recovery hint and repair missing prerequisites within the user-authorized scope. For empty unhoed soil needed for planting, call till_plot then retry planting once conditions changed. Preserve crops and facilities; do not expand the plot or clear extra obstacles without authorization. Only if recovery is unsafe, unavailable, exhausted, or prohibited, reply TASK_BLOCKED: with the unresolved reason and stop using tools. Walking across a crop with IsPassable=true is allowed and does not mean destroying it. Never infer a crop blocks movement from the map character C alone.`,
 			state.Player.Location, int(state.Player.X), int(state.Player.Y),
 			state.Time.Season, state.Time.TimeString, state.Player.Energy, state.Player.MaxEnergy,
 			urgency,
@@ -921,37 +1146,75 @@ After ALL tools complete successfully, respond with "GOAL COMPLETE".`,
 			state.Time.Season, seedSuggestion)
 
 		// Only include game context if not using cheats
-		if !strings.Contains(strings.ToLower(activeGoal), "cheat") {
+		{ // Always include the observed game state.
 			prompt += "\n\n" + gameContext
 		}
 
 		// Send message and wait for response
 		log.Printf("[AGENT LOOP] Sending prompt (%d chars) to Copilot...", len(prompt))
-		response, err := a.session.SendAndWait(copilot.MessageOptions{
+		requestCount++
+		if requestCount > 6 {
+			log.Printf("[TASK INCOMPLETE] Six requests used; stopping without success.")
+			return
+		}
+		requestCtx, cancelRequest := context.WithTimeout(context.Background(), 10*time.Minute)
+		a.requestMu.Lock()
+		a.requestCancel = cancelRequest
+		a.farmContext = requestCtx
+		a.observationCount = 0
+		a.requestMu.Unlock()
+		response, err := a.session.SendAndWait(requestCtx, copilot.MessageOptions{
 			Prompt: prompt,
-		}, 120*time.Second) // 120 second timeout for complex cheat operations
+		})
+		cancelRequest()
+		a.requestMu.Lock()
+		a.requestCancel = nil
+		a.requestMu.Unlock()
 		if err != nil {
-			log.Printf("[AGENT AGENT] SendAndWait error: %v", err)
-			time.Sleep(5 * time.Second)
-			continue
+			log.Printf("[AGENT LOOP] Request failed: %v. Aborting without retry.", err)
+			abortCtx, cancelAbort := context.WithTimeout(context.Background(), 10*time.Second)
+			abortErr := a.session.Abort(abortCtx)
+			cancelAbort()
+			if abortErr != nil {
+				log.Printf("[AGENT LOOP] Abort failed: %v. Stop the program with Ctrl+C.", abortErr)
+			}
+			log.Printf("[AGENT LOOP] Autonomous loop stopped after request failure.")
+			return
 		}
 		log.Printf("[AGENT LOOP] Got response from Copilot")
 
 		// Log the response and check for goal completion
-		if response != nil && response.Data.Content != nil {
-			thought := strings.TrimSpace(*response.Data.Content)
+		var message *copilot.AssistantMessageData
+		if response != nil {
+			message, _ = response.Data.(*copilot.AssistantMessageData)
+		}
+		if message != nil {
+			thought := strings.TrimSpace(message.Content)
 			if thought != "" {
 				log.Printf("[AGENT THOUGHT] %s", thought)
 			}
 
 			// Check for goal completion signal
-			thoughtUpper := strings.ToUpper(thought)
-			if strings.Contains(thoughtUpper, "GOAL COMPLETE") ||
-				strings.Contains(thoughtUpper, "GOAL COMPLETED") ||
-				strings.Contains(thoughtUpper, "ALL TASKS COMPLETE") ||
-				strings.Contains(thoughtUpper, "MISSION ACCOMPLISHED") {
+			if strings.HasPrefix(strings.ToUpper(thought), "TASK_BLOCKED:") || strings.Contains(strings.ToUpper(thought), "\nTASK_BLOCKED:") {
+				log.Printf("[TASK BLOCKED] Stopping without claiming completion.")
+				return
+			}
+			if isCompletion(thought) {
 				log.Printf("[AGENT LOOP] Goal completion detected!")
-				goalCompleted = true
+				if verifyPlot {
+					// Allow the periodic game-state broadcast to catch up.
+					time.Sleep(1500 * time.Millisecond)
+					count, report := inspectTarget(freshGameState())
+					log.Printf("[PLOT CHECK AFTER CLAIM]\n%s", report)
+					if count == 15 {
+						log.Printf("[PLOT VERIFIED] 15/15 tiles meet the selected verification mode. Stopping.")
+						return
+					}
+					log.Printf("[PLOT CLAIM REJECTED] AI claimed completion, but fewer than 15 tiles are confirmed.")
+					goalCompleted = false
+				} else {
+					goalCompleted = true
+				}
 			}
 
 			if strings.Contains(thought, "PLAN:") {
@@ -965,6 +1228,17 @@ After ALL tools complete successfully, respond with "GOAL COMPLETE".`,
 					}
 				}
 			}
+		}
+
+		// Normal goals are a single agent turn (which can contain many tool calls).
+		// A natural-language final answer must never restart the user's entire goal.
+		if !verifyPlot && !strings.Contains(goal, "[HOME_AND_SLEEP]") && !strings.Contains(goal, "[WATER_AND_SLEEP]") {
+			if goalCompleted {
+				log.Printf("[AGENT LOOP] Goal completed. Autonomous loop stopped.")
+			} else {
+				log.Printf("[TASK INCOMPLETE] Final response had no completion marker; stopped without replaying goal.")
+			}
+			return
 		}
 
 		// Brief pause between iterations (LLM call is the main delay)
@@ -1158,9 +1432,7 @@ func (a *StardewAgent) doMoveTo(x, y int) (string, error) {
 		return "Player is currently busy. Wait for animation to finish.", nil
 	}
 
-	if !a.isTileWalkable(state, x, y) {
-		return fmt.Sprintf("Target (%d, %d) is blocked by an obstacle. Choose an adjacent '.' tile instead.", x, y), nil
-	}
+	log.Printf("[MOVE CHECK] Requesting game pathfinding for (%d,%d)", x, y)
 
 	resp, err := gameClient.SendCommand("move_to", map[string]interface{}{"x": x, "y": y})
 	if err != nil {
@@ -1170,24 +1442,9 @@ func (a *StardewAgent) doMoveTo(x, y int) (string, error) {
 		return fmt.Sprintf("Move rejected by game: %s", resp.Message), nil
 	}
 
-	timeout := time.After(30 * time.Second)
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			return "Movement timed out.", nil
-		case <-ticker.C:
-			state := gameClient.GetState()
-			if state != nil && int(state.Player.X) == x && int(state.Player.Y) == y {
-				return "Arrived at destination", nil
-			}
-			if state != nil && !state.Player.IsMoving {
-				return fmt.Sprintf("Stopped at (%d, %d). Check surroundings.", int(state.Player.X), int(state.Player.Y)), nil
-			}
-		}
-	}
+	result := verifyMoveCompletion(resp, state.Player.Location, x, y)
+	log.Printf("[MOVE VERIFIED] %s", result)
+	return result, nil
 }
 
 func (a *StardewAgent) clearTarget(targetType string) (string, error) {
@@ -1549,6 +1806,9 @@ Step 4: %s`,
 }
 
 func (a *StardewAgent) isTileWalkable(state *GameState, x, y int) bool {
+	if state == nil {
+		return false
+	}
 	radius := 30
 	px, py := int(state.Player.X), int(state.Player.Y)
 	rx := x - px
@@ -1576,6 +1836,8 @@ func (a *StardewAgent) isTileWalkable(state *GameState, x, y int) bool {
 
 	char := line[gridX]
 	switch char {
+	case 'C':
+		return observedCropWalkable(state, x, y)
 	case '.', '>', 'H', '"', ';', '@':
 		return true
 	default:
@@ -1585,6 +1847,24 @@ func (a *StardewAgent) isTileWalkable(state *GameState, x, y int) bool {
 
 func (a *StardewAgent) formatGameStateContext(state *GameState) string {
 	var sb strings.Builder
+	fmt.Fprintf(&sb, "Shop menu open: %v\n", state.Player.ShopOpen)
+	sb.WriteString("\n--- OBSERVED FURNITURE ---\n")
+	if state.Surroundings.FurnitureInfo == "" {
+		sb.WriteString("No furniture information received.\n")
+	} else {
+		sb.WriteString(state.Surroundings.FurnitureInfo + "\n")
+	}
+	sb.WriteString("Furniture origin is not necessarily a walkable approach or sleeping tile. Do not assume every furniture tile is accessible.\n")
+	sb.WriteString("\n--- OBSERVED CROP TILES (C is not automatically blocked) ---\n")
+	for _, tf := range state.Surroundings.NearbyTerrainFeatures {
+		if tf.Type == "hoe_dirt" {
+			fmt.Fprintf(&sb, "(%d,%d): hoe_dirt HasCrop=%v IsPassable=%v Crop=%s Dead=%v IsWatered=%v\n", tf.X, tf.Y, tf.HasCrop, tf.IsPassable, tf.CropName, tf.IsDead, tf.IsWatered)
+		}
+	}
+	sb.WriteString("\n--- INVENTORY ---\n")
+	for _, item := range state.Player.Inventory {
+		fmt.Fprintf(&sb, "slot %d: %s (%s) x%d\n", item.Slot, item.Name, item.DisplayName, item.Stack)
+	}
 	sb.WriteString(fmt.Sprintf("Equipped Tool: %s (slot %d)\n", state.Player.CurrentTool, state.Player.CurrentToolIndex))
 
 	tif := state.Surroundings.TileInFront
@@ -1706,4 +1986,55 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// inspectTargetPlot checks the fixed Farm rectangle for this opt-in test.
+// Only positively observed hoe_dirt counts; missing data never proves completion.
+func inspectTargetPlot(state *GameState) (int, string) {
+	if state == nil {
+		return 0, "No game state available. Completion cannot be verified."
+	}
+	if state.Player.Location != "Farm" {
+		return 0, "Player is not on Farm. Target plot cannot be verified."
+	}
+
+	terrain := make(map[[2]int]string)
+	objects := make(map[[2]int]string)
+	for _, tf := range state.Surroundings.NearbyTerrainFeatures {
+		terrain[[2]int{tf.X, tf.Y}] = tf.Type
+	}
+	for _, obj := range state.Surroundings.NearbyObjects {
+		objects[[2]int{obj.X, obj.Y}] = obj.Name
+	}
+
+	count := 0
+	var details strings.Builder
+	missing := []string{}
+	for y := 19; y <= 23; y++ {
+		for x := 64; x <= 66; x++ {
+			key := [2]int{x, y}
+			dx, dy := x-state.Player.X, y-state.Player.Y
+			inRange := dx >= -30 && dx <= 30 && dy >= -30 && dy <= 30
+			kind := terrain[key]
+			status := "UNCONFIRMED: no terrain entry; inspect before acting"
+			if !inRange {
+				status = "UNCONFIRMED: outside observation radius"
+			} else if kind == "hoe_dirt" {
+				count++
+				status = "hoe_dirt: already tilled, skip"
+			} else if kind != "" {
+				status = "UNCONFIRMED: terrain=" + kind
+			}
+			if !inRange || kind != "hoe_dirt" {
+				missing = append(missing, fmt.Sprintf("(%d,%d)", x, y))
+			}
+			if name := objects[key]; name != "" {
+				status += "; object=" + name
+			}
+			fmt.Fprintf(&details, "(%d,%d): %s\n", x, y, status)
+		}
+	}
+	return count, fmt.Sprintf(
+		"Farm target X=64..66, Y=19..23. Confirmed hoe_dirt: %d/15\nUnconfirmed coordinates: %s\n%s",
+		count, strings.Join(missing, ", "), details.String())
 }

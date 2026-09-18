@@ -11,6 +11,24 @@ public class Pathfinder
 {
     private const int MaxIterations = 50000; // Increased for large maps
 
+    /// <summary>Calculate walkable tiles once for bulk accessibility checks.</summary>
+    public Dictionary<Point,int> FindReachableTiles(GameLocation location, Vector2 start, int maxDistance)
+    {
+        var result=new Dictionary<Point,int>();
+        var origin=new Point((int)start.X,(int)start.Y);
+        var queue=new Queue<Point>();
+        result[origin]=0;queue.Enqueue(origin);
+        while(queue.Count>0 && result.Count<MaxIterations) {
+            var current=queue.Dequeue();int distance=result[current];
+            if(distance>=maxDistance) continue;
+            foreach(var next in new[]{new Point(current.X+1,current.Y),new Point(current.X-1,current.Y),new Point(current.X,current.Y+1),new Point(current.X,current.Y-1)}) {
+                if(result.ContainsKey(next) || !IsTileWalkable(location,next.X,next.Y)) continue;
+                result[next]=distance+1;queue.Enqueue(next);
+            }
+        }
+        return result;
+    }
+
     /// <summary>Find a path from start to goal using A* algorithm.</summary>
     /// <param name="location">The game location to pathfind in.</param>
     /// <param name="start">Starting tile position.</param>
@@ -99,8 +117,13 @@ public class Pathfinder
         // Use game's built-in passability check
         var tileLocation = new Location(x, y);
 
+// Local workaround: player-confirmed walkable farmhouse steps only.
+bool knownFarmhouseSteps =
+    location.Name == "Farm" &&
+    x == 64 && (y == 15 || y == 16);
+
         // Check if tile itself is passable (map layer check)
-        if (!location.isTilePassable(tileLocation, Game1.viewport))
+        if (!knownFarmhouseSteps && !location.isTilePassable(tileLocation, Game1.viewport))
             return false;
 
         // Check for objects blocking the tile
@@ -132,7 +155,7 @@ public class Pathfinder
         {
             foreach (var building in farm.buildings)
             {
-                if (building.occupiesTile(tileVector))
+                if (building.occupiesTile(tileVector) && !knownFarmhouseSteps)
                     return false;
             }
         }
@@ -140,6 +163,10 @@ public class Pathfinder
         // Check for furniture
         foreach (var furniture in location.furniture)
         {
+            if (furniture.isPassable())
+                continue;
+            // Permit planning through beds; actual movement collision remains.
+            
             if (furniture.TileLocation == tileVector ||
                 furniture.boundingBox.Value.Contains(x * 64 + 32, y * 64 + 32))
                 return false;

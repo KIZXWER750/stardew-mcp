@@ -17,7 +17,7 @@ using SObject = StardewValley.Object;
 namespace StardewMCP;
 
 /// <summary>Executes commands received from the WebSocket server.</summary>
-public class CommandExecutor
+public partial class CommandExecutor
 {
     private readonly IModHelper _helper;
     private readonly IMonitor _monitor;
@@ -117,12 +117,15 @@ public class CommandExecutor
 
         // Continue movement if we have a target
         ProcessMovement();
+        ProcessExitHouse();
 
         // Continue tool use if active
         ProcessToolUse();
 
         // Continue held tool if active
         ProcessHoldTool();
+        UpdateFarmWork();
+        UpdateShopExit();
     }
 
     /// <summary>Enforce active cheat mode effects like time freeze and infinite energy.</summary>
@@ -457,15 +460,41 @@ public class CommandExecutor
 
     private void ExecuteCommand(GameCommand command)
     {
+        if (!AllowUiCommand(command)) {
+            command.OnComplete?.Invoke(new CommandResponse {Id=command.Id,Success=false,Message="Inactive UI run or cheat command rejected"});
+            return;
+        }
         _monitor.Log($"Executing command: {command.Action}", LogLevel.Debug);
 
         try
         {
+            if (_activeShopExit!=null) throw new InvalidOperationException("Exit traversal owns controls; wait or cancel first");
+            if (FarmActive && command.Action != "farm_status" && command.Action != "farm_cancel" && command.Action != "farm_inspect" && command.Action != "farm_find_candidates")
+                throw new InvalidOperationException("Farm task owns the controls; wait or cancel it first");
             var result = command.Action.ToLower() switch
             {
+                "shop_status" => ShopStatus(command),
+                "crop_sale_inspect" => InspectSellableCrops(command),
+                "crop_sell" => SellCropStack(command),
+                "storage_inspect" => InspectStorage(command),
+                "storage_open" => OpenStorage(command),
+                "storage_take" => TakeStorageCrop(command),
+                "storage_close" => CloseStorage(command),
+                "shop_route" => FindShopRoute(command),
+                "shop_inspect" => InspectShop(command),
+                "shop_buy" => BuyShopItem(command),
+                "shop_close" => CloseShop(command),
+                "shop_exit" => UseShopExit(command),
+                "farm_analyze" => FarmAnalyze(command),
+                "farm_water_sources" => FarmWaterSources(command),
+                "farm_inspect" => FarmInspect(command),
+                "farm_find_candidates" => FarmFindCandidates(command),
+                "farm_start" => FarmStart(command),
+                "farm_status" => FarmStatus(command, false),
+                "farm_cancel" => FarmStatus(command, true),
                 // Movement & Basic Actions
                 "move_to" => ExecuteMoveTo(command),
-                "stop" => ExecuteStop(command),
+                "stop" => ExecuteStop(command), "exit_house" => ExecuteExitHouse(command), "sleep_step" => ExecuteSleepStep(command),
                 "interact" => ExecuteInteract(command),
                 "face_direction" => ExecuteFaceDirection(command),
 
@@ -489,7 +518,7 @@ public class CommandExecutor
                 // Shopping
                 "open_shop_menu" => ExecuteOpenShopMenu(command),
                 "buy_item" => ExecuteBuyItem(command),
-                "sell_item" => ExecuteSellItem(command),
+                "sell_item" => new CommandResponse {Id=command.Id,Success=false,Message="Legacy sale disabled; use crop_sale_inspect and crop_sell"},
 
                 // Social
                 "give_gift" => ExecuteGiveGift(command),
@@ -574,7 +603,7 @@ public class CommandExecutor
 
             // For async actions (move_to, use_tool_repeat, hold_tool) - don't invoke callback immediately
             // These actions will invoke the callback when they complete or fail
-            var asyncActions = new[] { "move_to", "use_tool_repeat", "hold_tool" };
+            var asyncActions = new[] { "shop_exit", "move_to", "use_tool_repeat", "hold_tool" };
             if (!asyncActions.Contains(command.Action.ToLower()))
             {
                 command.OnComplete?.Invoke(result);

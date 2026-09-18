@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -49,6 +50,7 @@ type PlayerState struct {
 	FacingDirection     int             `json:"facingDirection"`
 	FacingDirectionName string          `json:"facingDirectionName"`
 	IsMoving            bool            `json:"isMoving"`
+	ShopOpen            bool            `json:"shopOpen"`
 	CanMove             bool            `json:"canMove"`
 	Inventory           []InventoryItem `json:"inventory"`
 }
@@ -74,6 +76,7 @@ type WorldState struct {
 }
 
 type SurroundingsState struct {
+	FurnitureInfo         string                `json:"furnitureInfo"`
 	AsciiMap              string                `json:"asciiMap"`
 	NearbyObjects         []NearbyObject        `json:"nearbyObjects"`
 	NearbyTerrainFeatures []NearbyTerrain       `json:"nearbyTerrainFeatures"`
@@ -282,6 +285,7 @@ type WebSocketMessage struct {
 }
 
 type WebSocketResponse struct {
+	State   *GameState  `json:"state,omitempty"`
 	ID      string      `json:"id,omitempty"`
 	Type    string      `json:"type"`
 	Success bool        `json:"success"`
@@ -444,6 +448,12 @@ func (c *GameClient) handleCommandResponse(response *WebSocketResponse) {
 	c.responsesMu.Unlock()
 
 	if ok {
+		// Publish the command-time snapshot BEFORE waking the waiting tool.
+		if response.State != nil {
+			c.mu.Lock()
+			c.state = response.State
+			c.mu.Unlock()
+		}
 		ch <- response
 	}
 }
@@ -461,6 +471,14 @@ func (c *GameClient) IsConnected() bool {
 }
 
 func (c *GameClient) SendCommand(action string, params map[string]interface{}) (*WebSocketResponse, error) {
+	if token := os.Getenv("STARDEW_UI_RUN"); token != "" {
+		copyParams := make(map[string]interface{})
+		for k, v := range params {
+			copyParams[k] = v
+		}
+		copyParams["_uiRun"] = token
+		params = copyParams
+	}
 	if !c.IsConnected() {
 		return nil, fmt.Errorf("not connected to game")
 	}
@@ -508,13 +526,12 @@ func (c *GameClient) SendCommand(action string, params map[string]interface{}) (
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--ingame-host" {
+		runIngameHost()
+		return
+	}
 	autoFlag := flag.Bool("auto", true, "Start in autonomous mode")
-	goalFlag := flag.String("goal", `USE CHEAT MODE to setup the farm:
-1. cheat_mode_enable first
-3. cheat_clear_debris, cheat_cut_trees, cheat_mine_rocks
-4. cheat_hoe_all to till soil
-5. cheat_plant_seeds season appropriate seeds"
-6. cheat_grow_crops then cheat_harvest_all`, "Goal for autonomous mode")
+	goalFlag := flag.String("goal", "", "Goal for autonomous mode; empty means no actions")
 	urlFlag := flag.String("url", "ws://localhost:8765/game", "WebSocket URL for the game mod")
 	flag.Parse()
 
@@ -529,16 +546,22 @@ func main() {
 			}
 			log.Println("Connected to Stardew Valley!")
 
-			if *autoFlag {
+			if *autoFlag && *goalFlag != "" {
 				log.Printf("Starting autonomous agent with goal: %s", *goalFlag)
 
 				agent, err := NewStardewAgent()
 				if err != nil {
 					log.Printf("Failed to start agent: %v", err)
+					if os.Getenv("STARDEW_UI_RUN") != "" {
+						os.Exit(1)
+					}
 					return
 				}
 				if err := agent.StartSession(*goalFlag); err != nil {
 					log.Printf("Failed to start session: %v", err)
+					if os.Getenv("STARDEW_UI_RUN") != "" {
+						os.Exit(1)
+					}
 					return
 				}
 			}

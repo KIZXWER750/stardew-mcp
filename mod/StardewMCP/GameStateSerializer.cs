@@ -158,6 +158,7 @@ public class GameStateSerializer
             FacingDirectionName = GetDirectionName(player.FacingDirection),
             IsMoving = player.isMoving(),
             CanMove = Game1.player.CanMove,
+            ShopOpen = Game1.activeClickableMenu is StardewValley.Menus.ShopMenu,
             Inventory = GetInventory(player)
         };
 
@@ -212,6 +213,8 @@ public class GameStateSerializer
 
         return new SurroundingsState
         {
+            FurnitureInfo = string.Join("\n", location.furniture.Select(f =>
+                $"{f.Name}: class={f.GetType().Name}, origin=({(int)f.TileLocation.X},{(int)f.TileLocation.Y}), boundsPixels=({f.boundingBox.Value.X},{f.boundingBox.Value.Y},{f.boundingBox.Value.Width},{f.boundingBox.Value.Height})")),
             AsciiMap = GenerateAsciiMap(location, playerX, playerY),
             NearbyTiles = GetNearbyTiles(location, playerX, playerY),
             NearbyObjects = GetNearbyObjects(location, playerX, playerY),
@@ -1446,6 +1449,7 @@ public class PlayerState
     public string FacingDirectionName { get; set; } = "";
     public bool IsMoving { get; set; }
     public bool CanMove { get; set; }
+    public bool ShopOpen { get; set; }
     // Pathfinding state - from move_to command
     public bool IsPathfinding { get; set; }
     public int? PathfindingTargetX { get; set; }
@@ -1479,6 +1483,7 @@ public class WorldState
 
 public class SurroundingsState
 {
+    public string FurnitureInfo { get; set; } = "";
     public string AsciiMap { get; set; } = "";
     public List<TileInfo> NearbyTiles { get; set; } = new();
     public List<NearbyObject> NearbyObjects { get; set; } = new();
