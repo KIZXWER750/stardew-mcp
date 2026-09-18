@@ -158,7 +158,7 @@ public sealed class IngameAgent
                 string id=root.TryGetProperty("id",out var i)?i.GetString()??"":"";
                 string text=root.TryGetProperty("text",out var t)?t.GetString()??"":"";
                 if(type=="host_error") {Record(text);Status=text;continue;}
-                if(type=="ready") {Ready=true;Status="지시 대기 중";continue;}
+                if(type=="ready") {Ready=true;Status="지시 대기 중 · "+text;Record(text);continue;}
                 if(id!=run || run=="") continue;
                 if(type=="done" || type=="rejected") {
                     executor.StopUiRun();run="";stopping=false;

@@ -274,13 +274,22 @@ type StardewAgent struct {
 	verifyPlanting      bool
 	verifyWatering      bool
 	client              *copilot.Client
-	session             *copilot.Session
+	session             agentSession
+	aiConfig            aiConfig
 	currentPlan         string
 	toolMutex           sync.Mutex // Prevents concurrent tool execution
 }
 
 // NewStardewAgent creates a new Stardew agent using Copilot SDK
 func NewStardewAgent() (*StardewAgent, error) {
+	cfg, err := loadAIConfig()
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[AI CONFIG] %s", cfg.description())
+	if cfg.Provider == "openai" {
+		return &StardewAgent{aiConfig: cfg}, nil
+	}
 	log.Printf("[AGENT] Creating GitHub Copilot SDK agent")
 
 	// Create client with default options
@@ -290,7 +299,8 @@ func NewStardewAgent() (*StardewAgent, error) {
 	}
 
 	return &StardewAgent{
-		client: client,
+		client:   client,
+		aiConfig: cfg,
 	}, nil
 }
 
@@ -309,7 +319,10 @@ func (a *StardewAgent) StartSession(initialGoal string) error {
 	a.verifyPlanting = strings.Contains(initialGoal, "[VERIFY_PLANT_3X5]")
 	a.verifyWatering = strings.Contains(initialGoal, "[VERIFY_WATER_3X5]")
 	log.Printf("[AGENT AGENT] Session started with goal: %s", initialGoal)
+	return a.startModelSession(initialGoal)
+}
 
+func (a *StardewAgent) toolSessionConfig() *copilot.SessionConfig {
 	// Define tools inline (matches original implementation pattern)
 	moveToTool := copilot.DefineTool("move_to", "Move to a WALKABLE tile. This tool BLOCKS until arrival.",
 		func(params MoveToParams, inv copilot.ToolInvocation) (string, error) {
@@ -926,7 +939,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		return farmReadCommand("shop_exit", map[string]interface{}{"exit_id": p.ExitID})
 	})
 	// Create session with tools (using embedded knowledge)
-	session, err := a.client.CreateSession(context.Background(), &copilot.SessionConfig{
+	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_storage", "open_storage", "take_storage_crop", "close_storage",
@@ -964,7 +977,20 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			cheatHoeTilesTool, cheatClearTilesTool, cheatHoeCustomPatternTool,
 			// Note: cheatTillPatternTool removed - AI should design its own patterns using cheatHoeCustomPatternTool
 		},
-	})
+	}
+	return config
+}
+
+func (a *StardewAgent) startModelSession(initialGoal string) error {
+	config := a.toolSessionConfig()
+	var session agentSession
+	var err error
+	if a.aiConfig.Provider == "openai" {
+		session, err = newOpenAISession(a.aiConfig, config)
+	} else {
+		config.Model = a.aiConfig.Model
+		session, err = a.client.CreateSession(context.Background(), config)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
@@ -1151,7 +1177,7 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 		}
 
 		// Send message and wait for response
-		log.Printf("[AGENT LOOP] Sending prompt (%d chars) to Copilot...", len(prompt))
+		log.Printf("[AGENT LOOP] Sending prompt (%d chars) to %s...", len(prompt), a.aiConfig.Provider)
 		requestCount++
 		if requestCount > 6 {
 			log.Printf("[TASK INCOMPLETE] Six requests used; stopping without success.")
@@ -1171,6 +1197,7 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 		a.requestCancel = nil
 		a.requestMu.Unlock()
 		if err != nil {
+			log.Printf("[AGENT THOUGHT] TASK_BLOCKED: %v", err)
 			log.Printf("[AGENT LOOP] Request failed: %v. Aborting without retry.", err)
 			abortCtx, cancelAbort := context.WithTimeout(context.Background(), 10*time.Second)
 			abortErr := a.session.Abort(abortCtx)
@@ -1181,7 +1208,7 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 			log.Printf("[AGENT LOOP] Autonomous loop stopped after request failure.")
 			return
 		}
-		log.Printf("[AGENT LOOP] Got response from Copilot")
+		log.Printf("[AGENT LOOP] Got response from %s", a.aiConfig.Provider)
 
 		// Log the response and check for goal completion
 		var message *copilot.AssistantMessageData

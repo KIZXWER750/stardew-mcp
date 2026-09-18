@@ -526,6 +526,15 @@ func (c *GameClient) SendCommand(action string, params map[string]interface{}) (
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--check-ai-config" {
+		cfg, err := loadAIConfig()
+		if err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+		log.Printf("[AI CONFIG] %s; configuration valid (no API request or game connection made)", cfg.description())
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--ingame-host" {
 		runIngameHost()
 		return
@@ -534,6 +543,12 @@ func main() {
 	goalFlag := flag.String("goal", "", "Goal for autonomous mode; empty means no actions")
 	urlFlag := flag.String("url", "ws://localhost:8765/game", "WebSocket URL for the game mod")
 	flag.Parse()
+	if *autoFlag && *goalFlag != "" {
+		if _, err := loadAIConfig(); err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+	}
 
 	gameClient = NewGameClient()
 

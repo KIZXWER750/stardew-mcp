@@ -1,0 +1,215 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+
+	copilot "github.com/github/copilot-sdk/go"
+)
+
+type testTransport func(*http.Request) (*http.Response, error)
+
+func (f testTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func apiTestResponse(status int, body string) *http.Response {
+	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
+}
+func testAISession(t *testing.T, handler func() string) *openAISession {
+	t.Helper()
+	tool := copilot.DefineTool("observe", "Read state", func(p struct {
+		X int `json:"x"`
+	}, _ copilot.ToolInvocation) (string, error) {
+		return handler(), nil
+	})
+	s, err := newOpenAISession(aiConfig{Provider: "openai", Model: openAIModel, key: "test-private-key"}, &copilot.SessionConfig{AvailableTools: []string{"observe"}, Tools: []copilot.Tool{tool}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestAIConfigFixedMediumAndMissingKey(t *testing.T) {
+	t.Setenv("STARDEW_AI_PROVIDER", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	if _, err := loadAIConfig(); err == nil {
+		t.Fatal("missing key accepted")
+	}
+	t.Setenv("OPENAI_API_KEY", "test-private-key")
+	c, err := loadAIConfig()
+	if err != nil || c.Model != openAIModel || !strings.Contains(c.description(), "medium") {
+		t.Fatal(c.description(), err)
+	}
+	if strings.Contains(c.description(), c.key) {
+		t.Fatal("key leaked")
+	}
+	t.Setenv("STARDEW_AI_PROVIDER", "copilot")
+	t.Setenv("OPENAI_API_KEY", "")
+	c, err = loadAIConfig()
+	if err != nil || c.Model != "gpt-4.1" {
+		t.Fatal(err)
+	}
+	t.Setenv("STARDEW_AI_PROVIDER", "unknown")
+	if _, err = loadAIConfig(); err == nil {
+		t.Fatal("invalid provider accepted")
+	}
+}
+
+func TestOpenAIActualToolRegistry(t *testing.T) {
+	a := &StardewAgent{}
+	s, err := newOpenAISession(aiConfig{Provider: "openai", Model: openAIModel, key: "test-key"}, a.toolSessionConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.tools) != 36 {
+		t.Fatalf("tool count = %d", len(s.tools))
+	}
+	for name := range s.tools {
+		if strings.HasPrefix(name, "cheat_") {
+			t.Fatal(name)
+		}
+	}
+	if strings.Contains(s.instructions, "## CHEAT MODE") {
+		t.Fatal("cheat manual exposed")
+	}
+}
+
+func TestOpenAIStartupDoesNotLaunchCopilot(t *testing.T) {
+	t.Setenv("STARDEW_AI_PROVIDER", "openai")
+	t.Setenv("OPENAI_API_KEY", "test-private-key")
+	t.Setenv("COPILOT_CLI_PATH", "/this-cli-does-not-exist")
+	a, err := NewStardewAgent()
+	if err != nil || a.client != nil || a.aiConfig.Model != openAIModel {
+		t.Fatal("OpenAI startup used Copilot", err)
+	}
+}
+
+func TestOpenAIKeyRedaction(t *testing.T) {
+	s := testAISession(t, func() string { return "echo test-private-key" })
+	output, err := s.execute(context.Background(), responseItem{Name: "observe", CallID: "r", Arguments: `{"x":1}`})
+	if err != nil || strings.Contains(output, "test-private-key") {
+		t.Fatal("tool result leaked key")
+	}
+	s.client.Transport = testTransport(func(*http.Request) (*http.Response, error) {
+		return apiTestResponse(200, `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"echo test-private-key"}]}]}`), nil
+	})
+	result, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "test"})
+	if err != nil || strings.Contains(result.Data.(*copilot.AssistantMessageData).Content, "test-private-key") {
+		t.Fatal("final result leaked key")
+	}
+}
+
+func TestOpenAIToolLoopAndReasoningContinuity(t *testing.T) {
+	executions, requests := 0, 0
+	s := testAISession(t, func() string { executions++; return "verified" })
+	s.client.Transport = testTransport(func(r *http.Request) (*http.Response, error) {
+		requests++
+		if r.Header.Get("Authorization") != "Bearer test-private-key" {
+			t.Fatal("missing authorization")
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req["model"] != openAIModel || req["reasoning"].(map[string]any)["effort"] != "medium" || req["store"] != false || req["parallel_tool_calls"] != false {
+			t.Fatal("wrong request contract")
+		}
+		input, _ := json.Marshal(req["input"])
+		if requests == 1 {
+			return apiTestResponse(200, `{"status":"completed","output":[{"type":"reasoning","id":"r1","summary":[],"encrypted_content":"opaque"},{"type":"function_call","call_id":"call1","name":"observe","arguments":"{\"x\":1}"}]}`), nil
+		}
+		if !strings.Contains(string(input), "opaque") || !strings.Contains(string(input), "verified") || !strings.Contains(string(input), "call1") {
+			t.Fatal("missing reasoning or function output history")
+		}
+		return apiTestResponse(200, `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"GOAL COMPLETE"}]}]}`), nil
+	})
+	result, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "observe once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Data.(*copilot.AssistantMessageData).Content != "GOAL COMPLETE" || executions != 1 || requests != 2 {
+		t.Fatal("loop or completion incorrect")
+	}
+}
+
+func TestOpenAIToolValidationAndDedup(t *testing.T) {
+	executions := 0
+	s := testAISession(t, func() string { executions++; return "ok" })
+	valid := responseItem{Name: "observe", CallID: "one", Arguments: `{"x":1}`}
+	for i := 0; i < 2; i++ {
+		if _, err := s.execute(context.Background(), valid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if executions != 1 {
+		t.Fatal("duplicate action executed")
+	}
+	for _, call := range []responseItem{
+		{Name: "cheat_warp", CallID: "bad", Arguments: `{}`},
+		{Name: "observe", CallID: "bad", Arguments: `{"x":"bad"}`},
+		{Name: "observe", CallID: "bad", Arguments: `{"x":1,"unexpected":true}`},
+		{Name: "observe", CallID: "bad", Arguments: `null`},
+		{Name: "observe", CallID: "", Arguments: `{"x":1}`},
+		{Name: "observe", CallID: "one", Arguments: `{"x":2}`},
+	} {
+		if _, err := s.execute(context.Background(), call); err == nil {
+			t.Fatalf("accepted bad call: %+v", call)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.execute(ctx, responseItem{Name: "observe", CallID: "new", Arguments: `{"x":1}`}); err == nil {
+		t.Fatal("cancel ignored")
+	}
+	if executions != 1 {
+		t.Fatal("invalid action executed")
+	}
+}
+
+func TestOpenAIHTTPFailuresDoNotRetryOrLeak(t *testing.T) {
+	for _, status := range []int{301, 400, 401, 403, 404, 429, 500, 503} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			s := testAISession(t, func() string { t.Fatal("tool ran"); return "" })
+			requests := 0
+			s.client.Transport = testTransport(func(*http.Request) (*http.Response, error) {
+				requests++
+				return apiTestResponse(status, `test-private-key sensitive error`), nil
+			})
+			_, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "test"})
+			if err == nil || strings.Contains(err.Error(), "test-private-key") || requests != 1 {
+				t.Fatal("unsafe HTTP handling", err)
+			}
+		})
+	}
+}
+
+func TestOpenAIRejectIncompleteParallelAndMalformed(t *testing.T) {
+	for _, body := range []string{
+		`not json`,
+		`{"status":"incomplete","output":[{"type":"function_call","call_id":"one","name":"observe","arguments":"{\"x\":1}"}]}`,
+		`{"status":"completed","output":[{"type":"function_call","call_id":"one","name":"observe","arguments":"{\"x\":1}"},{"type":"function_call","call_id":"two","name":"observe","arguments":"{\"x\":2}"}]}`,
+		`{"status":"completed","output":[]}`,
+	} {
+		s := testAISession(t, func() string { t.Fatal("unsafe action"); return "" })
+		s.client.Transport = testTransport(func(*http.Request) (*http.Response, error) { return apiTestResponse(200, body), nil })
+		if _, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "test"}); err == nil {
+			t.Fatal("invalid response accepted")
+		}
+	}
+}
+
+func TestOpenAIRoundLimit(t *testing.T) {
+	calls := 0
+	s := testAISession(t, func() string { return "ok" })
+	s.client.Transport = testTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return apiTestResponse(200, fmt.Sprintf(`{"status":"completed","output":[{"type":"function_call","call_id":"c%d","name":"observe","arguments":"{\"x\":1}"}]}`, calls)), nil
+	})
+	_, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "test"})
+	if err == nil || !strings.Contains(err.Error(), "ROUND_LIMIT") || calls != 60 {
+		t.Fatal(err, calls)
+	}
+}

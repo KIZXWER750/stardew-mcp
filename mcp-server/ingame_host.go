@@ -64,7 +64,12 @@ func runIngameHost() {
 	seen := make(map[string]bool)
 	stop := func() { killUIWorker(worker); worker = nil }
 	defer stop()
-	emitUI("ready", "", "AI host ready")
+	config, configErr := loadAIConfig()
+	readyText := config.description()
+	if configErr != nil {
+		readyText = configErr.Error()
+	}
+	emitUI("ready", "", readyText)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var started time.Time
@@ -83,6 +88,10 @@ func runIngameHost() {
 					emitUI("done", runID, "Cancelled. Completed world changes are retained.")
 				}
 			case "start":
+				if _, err := loadAIConfig(); err != nil {
+					emitUI("rejected", r.ID, err.Error())
+					continue
+				}
 				if worker != nil || seen[r.ID] || !validUIGoal(r) {
 					emitUI("rejected", r.ID, "Busy, duplicate request, invalid goal or unsupported legacy token.")
 					continue
