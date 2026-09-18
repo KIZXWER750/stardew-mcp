@@ -22,7 +22,7 @@ public class Pathfinder
             var current=queue.Dequeue();int distance=result[current];
             if(distance>=maxDistance) continue;
             foreach(var next in new[]{new Point(current.X+1,current.Y),new Point(current.X-1,current.Y),new Point(current.X,current.Y+1),new Point(current.X,current.Y-1)}) {
-                if(result.ContainsKey(next) || !IsTileWalkable(location,next.X,next.Y)) continue;
+                if(result.ContainsKey(next) || !IsTileWalkable(location,next.X,next.Y) || !CanTraverseFarmhousePorch(location,current,next)) continue;
                 result[next]=distance+1;queue.Enqueue(next);
             }
         }
@@ -75,7 +75,10 @@ public class Pathfinder
                 int ny = (int)neighbor.Y;
 
                 // Skip if not walkable
-                if (!IsTileWalkable(location, nx, ny))
+                if (!IsTileWalkable(location, nx, ny) ||
+                    !CanTraverseFarmhousePorch(location,
+                        new Point((int)current.X, (int)current.Y),
+                        new Point(nx, ny)))
                     continue;
 
                 float tentativeGScore = gScore[current] + 1; // Cost of 1 per tile
@@ -100,6 +103,32 @@ public class Pathfinder
     }
 
     /// <summary>Check if a tile is walkable for the player.</summary>
+    private static bool IsFarmhousePorchTile(int x, int y)
+        => (y == 15 && x >= 59 && x <= 66) ||
+           (y == 16 && x >= 63 && x <= 65);
+
+    /// <summary>
+    /// The standard farmhouse porch overlaps the building collision rectangle.
+    /// Crossing between the outside world and that porch is possible only via
+    /// the three south-facing stair edges: (63..65,17) -> (63..65,16).
+    /// Once inside the porch region, ordinary cardinal movement is allowed.
+    /// Apply the same gate in reverse so paths never exit through a wall.
+    /// </summary>
+    private static bool CanTraverseFarmhousePorch(GameLocation location, Point from, Point to)
+    {
+        if (location.Name != "Farm")
+            return true;
+
+        bool fromPorch = IsFarmhousePorchTile(from.X, from.Y);
+        bool toPorch = IsFarmhousePorchTile(to.X, to.Y);
+        if (fromPorch == toPorch)
+            return true;
+
+        return from.X == to.X && from.X >= 63 && from.X <= 65 &&
+               ((from.Y == 17 && to.Y == 16) ||
+                (from.Y == 16 && to.Y == 17));
+    }
+
     private bool IsTileWalkable(GameLocation location, int x, int y)
     {
         // Check map bounds
@@ -122,10 +151,7 @@ public class Pathfinder
         // building, but the player can actually walk across them. Keep this
         // exception limited to the player-confirmed standard farmhouse deck;
         // objects, terrain features, clumps and furniture are still checked.
-        bool knownFarmhouseSteps =
-            location.Name == "Farm" &&
-            ((y == 15 && x >= 59 && x <= 66) ||
-             (y == 16 && x >= 63 && x <= 65));
+        bool knownFarmhouseSteps = location.Name == "Farm" && IsFarmhousePorchTile(x, y);
 
         // Check if tile itself is passable (map layer check)
         if (!knownFarmhouseSteps && !location.isTilePassable(tileLocation, Game1.viewport))

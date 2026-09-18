@@ -131,7 +131,7 @@ func readHomeRoute() (homeRoute, string, error) {
 		raw := `{"status":"COMPLETED","location":"FarmHouse","routeToFarm":[],"finalLeg":"already inside"}`
 		return homeRoute{Status: "COMPLETED"}, raw, nil
 	}
-	finalLeg := `{"from":"Farm","to":"FarmHouse","stand":{"x":64,"y":15},"door":{"x":64,"y":14},"action":"normal north interaction","walkablePorch":"x=59..66 at y=15; x=63..65 at y=16"}`
+	finalLeg := `{"from":"Farm","to":"FarmHouse","stand":{"x":64,"y":15},"door":{"x":64,"y":14},"action":"normal north interaction","walkablePorch":"x=59..66 at y=15; x=63..65 at y=16","onlyOutsideEntries":[{"from":{"x":63,"y":17},"to":{"x":63,"y":16}},{"from":{"x":64,"y":17},"to":{"x":64,"y":16}},{"from":{"x":65,"y":17},"to":{"x":65,"y":16}}]}`
 	if state.Player.Location == "Farm" {
 		raw := fmt.Sprintf(`{"status":"OBSERVED","location":"Farm","routeToFarm":[],"finalLeg":%s}`, finalLeg)
 		return homeRoute{Status: "OBSERVED"}, raw, nil
