@@ -2,6 +2,12 @@ package main
 
 import "testing"
 
+func TestPierreCounterContract(t *testing.T) {
+	if pierreCounterX != 4 || pierreCounterY != 18 || pierreStandX != 4 || pierreStandY != 19 {
+		t.Fatal("Pierre counter contract changed")
+	}
+}
+
 func TestShopPurchaseValidation(t *testing.T) {
 	good := ShopBuyParams{ObservationID: "observed", ItemID: "(O)472", Quantity: 15, MaxTotalCost: 500, ReserveMoney: 100}
 	if _, err := good.values("run"); err != nil {

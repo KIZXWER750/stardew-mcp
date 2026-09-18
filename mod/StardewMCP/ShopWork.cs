@@ -61,6 +61,26 @@ public partial class CommandExecutor
     private int ShopInventoryCount(string id) => Game1.player.Items.Where(i=>i!=null && i.QualifiedItemId==id).Sum(i=>i.Stack);
     private int ShopHeldCount(ShopMenu s,string id) => ShopMember(s,"heldItem") is Item i && i.QualifiedItemId==id?i.Stack:0;
 
+    private CommandResponse OpenPierreShopCounter(GameCommand c)
+    {
+        const int counterX=4,counterY=18,standX=4,standY=19;
+        if(Game1.currentLocation.Name!="SeedShop") throw new InvalidOperationException("Enter SeedShop before opening Pierre's counter");
+        if(Game1.activeClickableMenu is ShopMenu) return FarmReply(c,new {status="COMPLETED",shopOpen=true,counter=new {x=counterX,y=counterY},stand=new {x=standX,y=standY}});
+        if(Game1.activeClickableMenu!=null) throw new InvalidOperationException("Close the current dialogue/menu before opening Pierre's shop");
+        var tile=new Point((int)Game1.player.Tile.X,(int)Game1.player.Tile.Y);
+        if(tile.X!=standX || tile.Y!=standY) throw new InvalidOperationException($"Stand at ({standX},{standY}) south of Pierre's sales counter; actual=({tile.X},{tile.Y})");
+        if(!Game1.player.CanMove || Game1.player.UsingTool) throw new InvalidOperationException("Player is busy at Pierre's counter");
+        ClearMovementState();
+        Game1.player.faceDirection(0);
+        Game1.currentCursorTile=new Vector2(counterX,counterY);
+        Game1.lastCursorMotionWasMouse=false;
+        Game1.setMousePosition(counterX*64+32-Game1.viewport.X,counterY*64+32-Game1.viewport.Y);
+        var action=Game1.options.actionButton.Length>0?Game1.options.actionButton[0].ToSButton():SButton.MouseRight;
+        _monitor.Log($"[SHOP COUNTER] stand=({standX},{standY}), facing=up, counter=({counterX},{counterY})",LogLevel.Info);
+        _helper.Input.Press(action);
+        return new CommandResponse {Id=c.Id,Success=true,Message="Pierre counter interaction sent; caller must verify ShopMenu"};
+    }
+
     private CommandResponse InspectShop(GameCommand c)
     {
         if(Game1.activeClickableMenu is not ShopMenu s) return FarmReply(c,new {status="BLOCKED",reason="SHOP_NOT_OPEN",location=Game1.currentLocation.Name});
@@ -153,6 +173,7 @@ public partial class CommandExecutor
         string target=ShopText(c,"destination"); if(target=="") target="SeedShop";
         var edges=new List<(string From,string To,int X,int Y,string Action)>();
         var counters=new List<object>();
+        if(Game1.currentLocation.Name=="SeedShop") counters.Add(new {x=4,y=18,action="Pierre sales counter",approach=new {x=4,y=19},face="up",use="open_pierre_shop"});
         foreach(var loc in Game1.locations) {
             foreach(var w in loc.warps) edges.Add((loc.Name,w.TargetName,w.X,w.Y,"walk onto warp"));
             foreach(var door in loc.doors.Pairs) edges.Add((loc.Name,door.Value,door.Key.X,door.Key.Y,"interact with door"));

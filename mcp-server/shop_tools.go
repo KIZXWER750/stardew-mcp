@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const shopToolRules = `
@@ -15,8 +16,9 @@ If budget is unspecified, explain a conservative proposed budget and ask the use
 Use find_shop_route for observed loaded-map exits. Each link has approach candidates and an exit_id.
 Move to a reachable approach then use_route_exit; verify location before the next link. Refresh route after transitions.
 Do not guess map coordinates, shop hours or inventory. A graph route is not proof that a door is open.
-Inside SeedShop, find observed counter actions, approach cardinally, face the counter and interact once.
-Then inspect_shop. If no shop opened, report the actual obstacle; no purchases based on guessed stock.
+Inside SeedShop, call open_pierre_shop. It walks to the fixed customer tile (4,19), faces north toward
+Pierre's sales counter at (4,18), interacts once and verifies an actual ShopMenu. Never interact with
+Pierre's NPC directly because that opens ordinary dialogue instead of the store. Then inspect_shop.
 Select the exact seed item ID from inspect_shop and call buy_shop_item with its observation ID.
 Buy at most the requested quantity. Never split requests to circumvent a budget or reserve.
 A partial/uncertain transaction must stop and report spent gold, received seeds and cursor contents; do not retry it with a new observation or changed budget.
@@ -28,6 +30,10 @@ Before a trip check get_shop_status. Normal trading hours are 09:00 inclusive to
 `
 
 type ShopEmptyParams struct{}
+
+const pierreCounterX, pierreCounterY = 4, 18
+const pierreStandX, pierreStandY = 4, 19
+
 type ShopRouteParams struct {
 	Destination string `json:"destination" jsonschema:"Observed destination name; SeedShop for Pierre or Farm for return"`
 }
@@ -67,4 +73,42 @@ func (a *StardewAgent) buyShopItem(scope string, p ShopBuyParams) (string, error
 	a.toolMutex.Lock()
 	defer a.toolMutex.Unlock()
 	return farmReadCommand("shop_buy", values)
+}
+
+func (a *StardewAgent) openPierreShop() (string, error) {
+	a.toolMutex.Lock()
+	defer a.toolMutex.Unlock()
+	state := gameClient.GetState()
+	if state == nil {
+		return "TASK_BLOCKED: game disconnected", nil
+	}
+	if state.Player.Location != "SeedShop" {
+		return "TASK_BLOCKED: enter SeedShop before opening Pierre's counter", nil
+	}
+	if state.Player.ShopOpen {
+		return "SHOP_OPENED: Pierre ShopMenu is already open; call inspect_shop", nil
+	}
+	if state.Player.X != pierreStandX || state.Player.Y != pierreStandY {
+		a.doMoveTo(pierreStandX, pierreStandY)
+		state = gameClient.GetState()
+		if state == nil || state.Player.Location != "SeedShop" || state.Player.X != pierreStandX || state.Player.Y != pierreStandY {
+			return fmt.Sprintf("TASK_BLOCKED: could not reach Pierre counter approach (%d,%d); actual state must be refreshed", pierreStandX, pierreStandY), nil
+		}
+	}
+	response, err := gameClient.SendCommand("shop_open_pierre", nil)
+	if err != nil {
+		return "TASK_BLOCKED: Pierre counter interaction failed: " + err.Error(), nil
+	}
+	if response == nil || !response.Success {
+		return "TASK_BLOCKED: Pierre counter interaction was rejected", nil
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		state = gameClient.GetState()
+		if state != nil && state.Player.Location == "SeedShop" && state.Player.ShopOpen {
+			return fmt.Sprintf("SHOP_OPENED: verified Pierre ShopMenu from stand=(%d,%d), counter=(%d,%d); call inspect_shop next", pierreStandX, pierreStandY, pierreCounterX, pierreCounterY), nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Sprintf("TASK_BLOCKED: Pierre ShopMenu did not open after interacting north from (%d,%d) with counter (%d,%d); do not talk to Pierre NPC or repeat blindly", pierreStandX, pierreStandY, pierreCounterX, pierreCounterY), nil
 }
