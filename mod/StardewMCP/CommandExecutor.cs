@@ -491,6 +491,7 @@ public partial class CommandExecutor
                 "life_food_options" => LifeFoodOptions(command),
                 "life_recovery_options" => LifeRecoveryOptions(command),
                 "life_eat_step" => LifeEatStep(command),
+                "life_enter_farmhouse" => LifeEnterFarmhouse(command),
                 "farm_analyze" => FarmAnalyze(command),
                 "farm_water_sources" => FarmWaterSources(command),
                 "farm_inspect" => FarmInspect(command),

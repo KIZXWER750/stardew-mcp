@@ -103,9 +103,9 @@ type homeRoute struct {
 	} `json:"route"`
 }
 
-func readHomeRoute() (homeRoute, string, error) {
+func readLifeRoute(destination string) (homeRoute, string, error) {
 	var route homeRoute
-	r, err := gameClient.SendCommand("shop_route", map[string]interface{}{"destination": "FarmHouse"})
+	r, err := gameClient.SendCommand("shop_route", map[string]interface{}{"destination": destination})
 	if err != nil {
 		return route, "", err
 	}
@@ -122,6 +122,28 @@ func readHomeRoute() (homeRoute, string, error) {
 	return route, string(b), nil
 }
 
+func readHomeRoute() (homeRoute, string, error) {
+	state := gameClient.GetState()
+	if state == nil {
+		return homeRoute{}, "", fmt.Errorf("game disconnected")
+	}
+	if state.Player.Location == "FarmHouse" {
+		raw := `{"status":"COMPLETED","location":"FarmHouse","routeToFarm":[],"finalLeg":"already inside"}`
+		return homeRoute{Status: "COMPLETED"}, raw, nil
+	}
+	finalLeg := `{"from":"Farm","to":"FarmHouse","stand":{"x":64,"y":15},"door":{"x":64,"y":14},"action":"normal north interaction","walkablePorch":"x=59..66 at y=15; x=63..65 at y=16"}`
+	if state.Player.Location == "Farm" {
+		raw := fmt.Sprintf(`{"status":"OBSERVED","location":"Farm","routeToFarm":[],"finalLeg":%s}`, finalLeg)
+		return homeRoute{Status: "OBSERVED"}, raw, nil
+	}
+	route, rawToFarm, err := readLifeRoute("Farm")
+	if err != nil {
+		return route, "", err
+	}
+	raw := fmt.Sprintf(`{"status":%q,"location":%q,"routeToFarm":%s,"finalLeg":%s}`, route.Status, state.Player.Location, rawToFarm, finalLeg)
+	return route, raw, nil
+}
+
 func (a *StardewAgent) returnHome() (string, error) {
 	a.toolMutex.Lock()
 	defer a.toolMutex.Unlock()
@@ -134,12 +156,36 @@ func (a *StardewAgent) returnHome() (string, error) {
 		if state.Player.Location == "FarmHouse" {
 			return fmt.Sprintf(`{"status":"COMPLETED","location":"FarmHouse","x":%d,"y":%d,"transitions":%d,"visited":%q}`, state.Player.X, state.Player.Y, transition, strings.Join(visited, " -> ")), nil
 		}
-		route, _, err := readHomeRoute()
+		if state.Player.Location == "Farm" {
+			_, _ = a.doMoveTo(64, 15)
+			current := gameClient.GetState()
+			if current == nil || current.Player.Location != "Farm" || current.Player.X != 64 || current.Player.Y != 15 {
+				return "TASK_BLOCKED: could not reach the verified farmhouse approach (64,15); inspect porch obstacles before retrying", nil
+			}
+			response, err := gameClient.SendCommand("life_enter_farmhouse", nil)
+			if err != nil || response == nil || !response.Success {
+				if err != nil {
+					return "TASK_BLOCKED: farmhouse interaction failed: " + err.Error(), nil
+				}
+				return "TASK_BLOCKED: farmhouse interaction was rejected", nil
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				current = gameClient.GetState()
+				if current != nil && current.Player.Location == "FarmHouse" {
+					visited = append(visited, "Farm->FarmHouse")
+					return fmt.Sprintf(`{"status":"COMPLETED","location":"FarmHouse","x":%d,"y":%d,"transitions":%d,"visited":%q}`, current.Player.X, current.Player.Y, transition+1, strings.Join(visited, " -> ")), nil
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			return "TASK_BLOCKED: farmhouse door input did not produce a verified FarmHouse transition", nil
+		}
+		route, _, err := readLifeRoute("Farm")
 		if err != nil || route.Status == "BLOCKED" || len(route.Route) == 0 {
 			if err != nil {
 				return "TASK_BLOCKED: " + err.Error(), nil
 			}
-			return fmt.Sprintf("TASK_BLOCKED: no observed loaded-map route from %s to FarmHouse", state.Player.Location), nil
+			return fmt.Sprintf("TASK_BLOCKED: no observed loaded-map route from %s to Farm", state.Player.Location), nil
 		}
 		edge := route.Route[0]
 		if edge.From != state.Player.Location || edge.ExitID == "" {

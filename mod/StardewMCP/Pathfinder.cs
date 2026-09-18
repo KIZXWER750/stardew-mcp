@@ -117,10 +117,15 @@ public class Pathfinder
         // Use game's built-in passability check
         var tileLocation = new Location(x, y);
 
-// Local workaround: player-confirmed walkable farmhouse steps only.
-bool knownFarmhouseSteps =
-    location.Name == "Farm" &&
-    x == 64 && (y == 15 || y == 16);
+        // The farmhouse footprint overlaps its visually walkable porch and
+        // steps. Map/building collision reports these tiles as part of the
+        // building, but the player can actually walk across them. Keep this
+        // exception limited to the player-confirmed standard farmhouse deck;
+        // objects, terrain features, clumps and furniture are still checked.
+        bool knownFarmhouseSteps =
+            location.Name == "Farm" &&
+            ((y == 15 && x >= 59 && x <= 66) ||
+             (y == 16 && x >= 63 && x <= 65));
 
         // Check if tile itself is passable (map layer check)
         if (!knownFarmhouseSteps && !location.isTilePassable(tileLocation, Game1.viewport))

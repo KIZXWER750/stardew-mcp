@@ -119,6 +119,30 @@ public partial class CommandExecutor
         });
     }
 
+    private CommandResponse LifeEnterFarmhouse(GameCommand command)
+    {
+        const int standX = 64, standY = 15, doorX = 64, doorY = 14;
+        if (Game1.currentLocation?.Name == "FarmHouse")
+            return FarmReply(command, new { status = "COMPLETED", location = "FarmHouse", alreadyInside = true });
+        if (Game1.currentLocation?.Name != "Farm")
+            return FarmReply(command, new { status = "BLOCKED", reason = "Reach Farm before entering the farmhouse.", location = Game1.currentLocation?.Name });
+        if (Game1.activeClickableMenu != null || !Game1.player.CanMove || Game1.player.UsingTool)
+            return FarmReply(command, new { status = "BLOCKED", reason = "Player or menu is busy at the farmhouse entrance." });
+        int x = (int)Game1.player.Tile.X, y = (int)Game1.player.Tile.Y;
+        if (x != standX || y != standY)
+            return FarmReply(command, new { status = "BLOCKED", reason = "Stand immediately south of the farmhouse door first.", expected = new { x = standX, y = standY }, actual = new { x, y } });
+
+        ClearMovementState();
+        Game1.player.faceDirection(0);
+        Game1.currentCursorTile = new Microsoft.Xna.Framework.Vector2(doorX, doorY);
+        Game1.lastCursorMotionWasMouse = false;
+        Game1.setMousePosition(doorX * 64 + 32 - Game1.viewport.X, doorY * 64 + 32 - Game1.viewport.Y);
+        var action = Game1.options.actionButton.Length > 0 ? Game1.options.actionButton[0].ToSButton() : SButton.MouseRight;
+        _monitor.Log($"[HOME ENTRANCE] stand=({standX},{standY}), facing=up, door=({doorX},{doorY})", LogLevel.Info);
+        _helper.Input.Press(action);
+        return FarmReply(command, new { status = "INPUT_SENT", stand = new { x = standX, y = standY }, door = new { x = doorX, y = doorY }, expectedLocation = "FarmHouse" });
+    }
+
     private CommandResponse LifeEatStep(GameCommand command)
     {
         var player = Game1.player;
