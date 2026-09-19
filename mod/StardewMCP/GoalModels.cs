@@ -76,6 +76,31 @@ public sealed class GoalQuestion
     public string AnsweredAtUtc { get; set; } = "";
 }
 
+public static class GoalQuestionPolicy
+{
+    public static string Fingerprint(string prompt)
+    {
+        string lower = (prompt ?? "").ToLowerInvariant();
+        if ((lower.Contains("허용") || lower.Contains("authoriz"))
+            && new[] { "sell_crops", "buy_seeds", "tend_existing_crops", "farm_crops" }.Any(lower.Contains))
+        {
+            string actions = string.Join(",", new[] { "sell_crops", "buy_seeds", "tend_existing_crops", "farm_crops" }
+                .Where(lower.Contains).OrderBy(p => p, StringComparer.Ordinal));
+            return "action_authorization:" + actions;
+        }
+        return new string(lower.Where(char.IsLetterOrDigit).ToArray());
+    }
+
+    public static GoalQuestion? LatestAnswered(IEnumerable<GoalQuestion> history, string prompt)
+    {
+        string fingerprint = Fingerprint(prompt);
+        if (fingerprint == "") return null;
+        return history.Where(p => p.Status == "answered" && !string.IsNullOrWhiteSpace(p.Answer)
+                && Fingerprint(p.Prompt) == fingerprint)
+            .OrderByDescending(p => p.AnsweredAtUtc, StringComparer.Ordinal).FirstOrDefault();
+    }
+}
+
 public sealed class GoalExecutionPlan
 {
     public int Revision { get; set; }
@@ -320,6 +345,22 @@ public static class GoalSchema
                 goal.QuestionHistory.Add(goal.PendingQuestion);
         }
         foreach (GoalQuestion question in goal.QuestionHistory) question.Options ??= new();
+        if (goal.PendingQuestion?.Status == "pending")
+        {
+            GoalQuestion? answered = goal.QuestionHistory.Where(p => !p.Id.Equals(goal.PendingQuestion.Id, StringComparison.OrdinalIgnoreCase))
+                .Where(p => p.Status == "answered" && !string.IsNullOrWhiteSpace(p.Answer)
+                    && GoalQuestionPolicy.Fingerprint(p.Prompt) == GoalQuestionPolicy.Fingerprint(goal.PendingQuestion.Prompt))
+                .OrderByDescending(p => p.AnsweredAtUtc, StringComparer.Ordinal).FirstOrDefault();
+            if (answered != null)
+            {
+                goal.PendingQuestion.Status = "duplicate_suppressed";
+                int index = goal.QuestionHistory.FindIndex(p => p.Id.Equals(goal.PendingQuestion.Id, StringComparison.OrdinalIgnoreCase));
+                if (index >= 0) goal.QuestionHistory[index] = goal.PendingQuestion;
+                goal.PendingQuestion = null;
+                if (goal.Status == GoalStatuses.AwaitingUser) goal.Status = GoalStatuses.Active;
+                goal.Progress.Summary = "동일 질문의 기존 답변을 재사용해 목표 재개 대기";
+            }
+        }
         return goal;
     }
 

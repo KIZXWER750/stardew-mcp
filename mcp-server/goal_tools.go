@@ -17,6 +17,7 @@ Use verify_long_term_goal to test completion from live game money. Never mark a 
 Pause, resume or cancel a goal only when the user requested that state change; cancellation is terminal.
 If essential information cannot be safely inferred, create a draft/active goal with the known scope and call request_goal_input once with one concise question and at most six options. The game will show a dedicated response window. After requesting input, stop this run and do not guess.
 Do not ask through ordinary final chat when request_goal_input is available. A later continuation contains the saved answer; inspect the goal before continuing.
+Never repeat an answered question. request_goal_input returns ALREADY_ANSWERED with the saved answer when the normalized question matches question history; reuse that answer and do not call request_goal_input again for the same issue. If more input is truly required, ask a materially different question that names the newly unresolved condition.
 For every newly created broad money goal, call build_goal_plan even when the inventory sale inspection is empty. Existing live farm crops are a distinct strategy: tend_existing_crops permits watering and harvesting only already-planted crops, while farm_crops permits preparing and planting a new plot. If the user allows crop selling and forbids only seed purchases or new farming, record tend_existing_crops as within scope; never widen that to buy_seeds or farm_crops. Do not end in ordinary TASK_BLOCKED merely because the inventory is empty. Preserve an explicit prohibition unless the dedicated answer changes it.
 Only after an answered saved question explicitly authorizes its named actions, use apply_goal_action_authorization with that question ID and the exact named actions, then refresh_goal_plan.
 `
@@ -103,7 +104,7 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 		copilot.DefineTool("cancel_long_term_goal", "Permanently cancel one persistent goal. Cancelled goals cannot be resumed.", func(p GoalIDParams, _ copilot.ToolInvocation) (string, error) {
 			return goalCommand("goal_status", map[string]interface{}{"goal_id": p.GoalID, "status": "cancelled"})
 		}),
-		copilot.DefineTool("request_goal_input", "Pause a persistent goal and show a dedicated in-game answer window for one essential question. Stop the current run after this call.", func(p GoalInputParams, _ copilot.ToolInvocation) (string, error) {
+		copilot.DefineTool("request_goal_input", "Pause a persistent goal and show a dedicated in-game answer window for one essential new question. An answered equivalent is suppressed and returned as ALREADY_ANSWERED; reuse it and never ask it again. Stop the current run only when a new question was actually created.", func(p GoalInputParams, _ copilot.ToolInvocation) (string, error) {
 			if strings.TrimSpace(p.GoalID) == "" || strings.TrimSpace(p.Question) == "" || len(p.Options) > 6 {
 				return "TASK_BLOCKED: goal_id, one question and at most six options required", nil
 			}

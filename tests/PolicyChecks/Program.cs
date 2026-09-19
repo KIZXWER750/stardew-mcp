@@ -83,6 +83,13 @@ Check(overdue.DeadlineMissed,"Unmet goal after its deadline must be reported ove
 Check(GoalSchema.CanTransition(GoalStatuses.Active,GoalStatuses.AwaitingUser),"Active goal must be able to wait for dedicated user input");
 Check(GoalSchema.CanTransition(GoalStatuses.AwaitingUser,GoalStatuses.Active),"Answered goal must be resumable");
 Check(!GoalSchema.CanTransition(GoalStatuses.Completed,GoalStatuses.Active),"Completed goal must not restart implicitly");
+Check(GoalQuestionPolicy.Fingerprint(" 씨앗 구매를 허용할까요? ")==GoalQuestionPolicy.Fingerprint("씨앗 구매를 허용할까요"),"Question fingerprint must ignore spacing and punctuation");
+Check(GoalQuestionPolicy.Fingerprint("buy_seeds, farm_crops 행동 허용을 검토할까요?")==GoalQuestionPolicy.Fingerprint("farm_crops와 buy_seeds를 허용하시겠습니까?"),"Equivalent action-authorization questions must share a semantic fingerprint");
+var duplicateQuestionGoal=GoalSchema.Normalize(new GoalDocument{Goals=new(){new LongTermGoal{Id="duplicate-question",Status=GoalStatuses.AwaitingUser,Summary="Ask once",Money=new MoneyGoalSpec{TargetValue=100},
+    QuestionHistory=new(){new GoalQuestion{Id="answered",Prompt="buy_seeds, farm_crops 행동을 허용할까요?",Status="answered",Answer="모두 허용",AnsweredAtUtc="2026-09-20T00:00:00Z"}},
+    PendingQuestion=new GoalQuestion{Id="pending",Prompt=" buy_seeds, farm_crops 행동을 허용할까요 ?",Status="pending"}}}}).Goals.Single();
+Check(duplicateQuestionGoal.PendingQuestion==null && duplicateQuestionGoal.Status==GoalStatuses.Active
+    && duplicateQuestionGoal.QuestionHistory.Single(p=>p.Id=="pending").Status=="duplicate_suppressed","An answered equivalent question must not reopen its UI");
 var goalDocument=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{Revision=4,Goals=new(){moneyGoal}})));
 Check(goalDocument.Revision==4 && goalDocument.Goals.Single().Id=="money","Goal JSON round trip must preserve revision and stable ID");
 var parsnipProfit=CropProfitMath.Calculate(new CropProfitInput{GrowthDays=4,RegrowDays=-1,DaysRemaining=10,Tiles=10,SeedPrice=20,UnitSellPrice=35});
@@ -117,4 +124,4 @@ Check(migratedPlan.Plan.Status==GoalPlanStatuses.Stale && migratedPlan.Plan.Bloc
 var timedStep=new GoalPlanStep{Id="shop",NotBeforeTime=900};
 var restoredTimedStep=System.Text.Json.JsonSerializer.Deserialize<GoalPlanStep>(System.Text.Json.JsonSerializer.Serialize(timedStep));
 Check(restoredTimedStep?.NotBeforeTime==900,"A shop-opening resume time must persist across save and reload");
-Console.WriteLine("55 policy, memory, knowledge, goal and economy regression checks passed.");
+Console.WriteLine("58 policy, memory, knowledge, goal and economy regression checks passed.");

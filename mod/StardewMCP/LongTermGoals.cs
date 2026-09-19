@@ -108,6 +108,8 @@ public partial class CommandExecutor
         prompt = prompt?.Trim() ?? "";
         if (prompt.Length is < 1 or > 1000) throw new InvalidOperationException("Question must be 1..1000 characters.");
         if (goal.PendingQuestion?.Status == "pending") throw new InvalidOperationException("This goal already has a pending question.");
+        if (GoalQuestionPolicy.LatestAnswered(goal.QuestionHistory, prompt) != null)
+            throw new InvalidOperationException("DUPLICATE_QUESTION_ALREADY_ANSWERED");
         var question = new GoalQuestion
         {
             Prompt = prompt, Options = NormalizeStringList(options).Take(6).ToList(),
@@ -122,6 +124,9 @@ public partial class CommandExecutor
         FlushLongTermMemory();
         return Clone(goal);
     }
+
+    private GoalQuestion? FindAnsweredGoalQuestion(string goalId, string prompt)
+        => GoalQuestionPolicy.LatestAnswered(FindGoal(goalId).QuestionHistory, prompt);
 
     public LongTermGoal AnswerGoalQuestion(string goalId, string questionId, string answer)
     {

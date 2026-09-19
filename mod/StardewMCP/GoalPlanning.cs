@@ -49,11 +49,16 @@ public partial class CommandExecutor
         {
             string reason = candidates.Count > 0 && deadlineEligible.Count == 0 ? "NO_CANDIDATE_MEETS_DEADLINE" : "NO_SUPPORTED_PROFIT_CANDIDATE";
             SaveBlockedGoalPlan(goal, fingerprint, reason, new(), maxTiles: maxTiles);
+            bool newCropActionsAlreadyAuthorized = GoalActionAuthorized(goal, "buy_seeds") && GoalActionAuthorized(goal, "farm_crops");
             string question = reason == "NO_CANDIDATE_MEETS_DEADLINE"
                 ? "현재 허용된 방법으로는 마감일까지 목표를 달성할 후보가 없습니다. 목표 조건을 어떻게 바꿀까요?"
+                : newCropActionsAlreadyAuthorized
+                ? $"씨앗 구매와 새 농사는 이미 허용되어 있지만 현재 {Game1.player.Money}g와 예비금·계절 조건으로 수익 후보를 만들지 못했습니다. 구매 가능한 소규모 재배로 다시 계산할까요, 아니면 다른 수익 방법을 검토할까요?"
                 : "인벤토리에 판매할 수확물도, 농장에 관리할 수 있는 기존 작물도 없습니다. 직접 수확물을 준비할까요, 아니면 buy_seeds, farm_crops 행동 허용을 검토할까요?";
             string[] options = reason == "NO_CANDIDATE_MEETS_DEADLINE"
                 ? new[] { "마감 조건을 다시 정하기", "목표 일시정지", "목표 취소" }
+                : newCropActionsAlreadyAuthorized
+                ? new[] { "구매 가능한 수량만 소규모 재배", "다른 수익 방법 허용 검토", "목표 일시정지", "목표 취소" }
                 : new[] { "판매할 수확물을 준비한 뒤 재개", "buy_seeds, farm_crops 허용 검토", "목표 일시정지", "목표 취소" };
             return FarmReply(command, new { status = "USER_INPUT_REQUIRED", goalId = goal.Id, reason, plan = goal.Plan,
                 requiresUserInput = true, suggestedQuestion = question, suggestedOptions = options,

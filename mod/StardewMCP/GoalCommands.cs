@@ -72,7 +72,14 @@ public partial class CommandExecutor
 
     private CommandResponse RequestGoalQuestionCommand(GameCommand command)
     {
-        LongTermGoal goal = RequestGoalQuestion(ShopText(command, "goal_id"), ShopText(command, "question"),
+        string goalId = ShopText(command, "goal_id");
+        string prompt = ShopText(command, "question");
+        GoalQuestion? answered = FindAnsweredGoalQuestion(goalId, prompt);
+        if (answered != null)
+            return FarmReply(command, new { status = "ALREADY_ANSWERED", goalId, duplicateSuppressed = true,
+                previousQuestionId = answered.Id, previousQuestion = answered.Prompt, previousAnswer = answered.Answer,
+                note = "Do not ask this question again. Reuse the saved answer. If progress still needs user input, ask a materially different question about the unresolved condition." });
+        LongTermGoal goal = RequestGoalQuestion(goalId, prompt,
             ReadStringList(command, "options"));
         return FarmReply(command, new
         {

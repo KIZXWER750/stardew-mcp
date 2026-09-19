@@ -11,7 +11,7 @@ Get-Command go,gofmt,dotnet -CommandType Application -ErrorAction Stop | Out-Nul
 $copilot = $null
 if (!$BuildOnly -and $env:STARDEW_AI_PROVIDER -eq 'copilot') { $copilot = (Get-Command copilot -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
 $version = (Get-Content "$src\mod\StardewMCP\manifest.json" -Raw | ConvertFrom-Json).Version
-if ($version -ne '1.19.8') { throw "Wrong source version: $version" }
+if ($version -ne '1.19.9') { throw "Wrong source version: $version" }
 
 Push-Location "$src\mcp-server"
 try {
@@ -31,7 +31,7 @@ try {
 } finally { Pop-Location }
 if ($BuildOnly) { Write-Host 'Build and Go tests completed. Nothing installed.'; return }
 
-$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.19.8-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.19.9-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $hadOld = Test-Path $dest
 if ($hadOld) { Copy-Item $dest $backup -Recurse }
 $config = [ordered]@{
@@ -65,5 +65,5 @@ try {
     } else { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
     throw
 }
-Write-Host '1.19.8 installed. Dead crops are removed before planting/watering, morning wake-up sends one left click before clock verification, and the left plan HUD colors completed steps yellow. Restart Steam/SMAPI; F6 opens commands or a pending question, F7 pauses active goals and plans.'
+Write-Host '1.19.9 installed. Answered goal questions are deduplicated before UI presentation, saved duplicate pending questions are suppressed on load, and planners ask about the actual unresolved condition after authorization. Restart Steam/SMAPI; F6 opens commands or a pending question, F7 pauses active goals and plans.'
 if ($hadOld) { Write-Host "Previous installation: $backup" }
