@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework><Nullable>enable</Nullable></PropertyGroup>
   <ItemGroup><Compile Include="../../mod/StardewMCP/WorkPolicy.cs" Link="WorkPolicy.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../mod/StardewMCP/MemoryModels.cs" Link="MemoryModels.cs" /></ItemGroup>
 </Project>

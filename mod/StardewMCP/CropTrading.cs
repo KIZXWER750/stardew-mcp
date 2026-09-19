@@ -133,10 +133,10 @@ public partial class CommandExecutor
             int x=(int)entry.Key.X,y=(int)entry.Key.Y;
             if(Math.Abs(x-Game1.player.Tile.X)+Math.Abs(y-Game1.player.Tile.Y)>12) continue;
             // Restrict to regular player-owned chests; never use shipping bins, Junimo/shared inventories, fridges, or machines.
-            if(!ShopBool(ShopMember(chest,"playerChest")) || ShopBool(ShopMember(chest,"fridge"))) continue;
-            object? special=ShopMember(chest,"SpecialChestType");if(special==null || special.ToString()!="None") continue;
+            if(!IsRegularPlayerChest(chest)) continue;
             string token=Guid.NewGuid().ToString("N");_chestObservations[token]=(Game1.currentLocation.Name,new Point(x,y),chest);
-            chests.Add(new {chestId=token,x,y,name=chest.DisplayName});
+            string memoryId=RememberChest(Game1.currentLocation.Name,x,y,chest,true);
+            chests.Add(new {chestId=token,memoryId,x,y,name=chest.DisplayName});
         }
         var rows=new List<object>();var inventoryRows=new List<object>();var menu=Game1.activeClickableMenu;var source=StorageSource(menu);object? chestSummary=null,inventorySummary=null;
         bool supported=source!=null && _chestObservations.Values.Any(v=>ReferenceEquals(v.Chest,source));
@@ -147,19 +147,21 @@ public partial class CommandExecutor
             var playerItems=Game1.player.Items.ToList();for(int i=0;i<playerItems.Count;i++)if(playerItems[i]!=null){var item=playerItems[i]!;string? quote=SafeStorageItem(item)?QuoteCrop(item,i,null,menu).Id:null;inventoryRows.Add(StorageRow(item,i,"inventory",quote));}
             chestSummary=StorageSummary(items);inventorySummary=StorageSummary(playerItems);
         }
+        FlushLongTermMemory();
         return FarmReply(c,new {status="OBSERVED",location=Game1.currentLocation.Name,chests,storageOpen=supported,chestSummary,inventorySummary,items=rows,inventory=inventoryRows,note="Counts include every visible stack. Only transferable rows have quoteId. Compatible partial stacks are used before empty slots."});
     }
     private CommandResponse InspectClosedStorage(GameCommand c)
     {
         var chests=new List<object>();
         foreach(var entry in Game1.currentLocation.Objects.Pairs) if(entry.Value is Chest chest) {
-            if(!ShopBool(ShopMember(chest,"playerChest")) || ShopBool(ShopMember(chest,"fridge"))) continue;
-            object? special=ShopMember(chest,"SpecialChestType");if(special==null || special.ToString()!="None") continue;
+            if(!IsRegularPlayerChest(chest)) continue;
             int capacity=ClosedStorageCapacity(chest);var items=chest.Items.Select(i=>(Item?)i).ToList();
             while(items.Count<capacity) items.Add(null);
             var rows=new List<object>();for(int i=0;i<items.Count;i++)if(items[i]!=null)rows.Add(ReadOnlyStorageRow(items[i]!,i));
-            chests.Add(new {x=(int)entry.Key.X,y=(int)entry.Key.Y,color=ClosedStorageColor(chest),summary=StorageSummary(items),items=rows});
+            string memoryId=RememberChest(Game1.currentLocation.Name,(int)entry.Key.X,(int)entry.Key.Y,chest,true);
+            chests.Add(new {memoryId,x=(int)entry.Key.X,y=(int)entry.Key.Y,color=ClosedStorageColor(chest),summary=StorageSummary(items),items=rows});
         }
+        FlushLongTermMemory();
         return FarmReply(c,new {status="OBSERVED_READ_ONLY",location=Game1.currentLocation.Name,chests,note="Read-only closed-chest contents. No quote IDs or mutation handles are returned. Open the chest menu normally before any transfer."});
     }
     private CommandResponse OpenStorage(GameCommand c)
@@ -198,7 +200,7 @@ public partial class CommandExecutor
             if(verified) {var organized=OrganizeStorageMenu((ItemGrabMenu)menu,top);result=new {status="COMPLETED",reason="TRANSFER_AND_ORGANIZE_VERIFIED",itemId=id,quality=q.Quality,received,removed,organizedBefore=organized.Before,organizedAfter=organized.After};}
             else result=new {status="BLOCKED",reason="TRANSFER_DELTA_MISMATCH; no retry",itemId=id,quality=q.Quality,received,removed,organizedBefore=-1,organizedAfter=-1};
         }catch(Exception ex){result=new {status="BLOCKED",reason=ex.Message,itemId=id,received=CountCrop(Game1.player.Items,id,q.Quality)-beforePlayer,removed=beforeChest-CountCrop(StorageMenuItems(top),id,q.Quality),requiresInspection=true};}
-        _cropReceipts[key]=result;_monitor.Log("[STORAGE TAKE] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
+        _cropReceipts[key]=result;RefreshChestMemory(q.Chest);_monitor.Log("[STORAGE TAKE] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
     }
     private CommandResponse StoreInventoryItem(GameCommand c)
     {
@@ -226,7 +228,7 @@ public partial class CommandExecutor
                 result=new {status=accepted==q.Count?"COMPLETED":"BLOCKED",reason=accepted==q.Count?"NATIVE_CHEST_ADD_AND_ORGANIZE_VERIFIED":"PARTIAL_ACCEPT_PRESERVED; inspect before retry",itemId=id,quality=q.Quality,requested=q.Count,accepted,removed,stored,remainingInInventory=q.Count-accepted,beforeCombinedUnits,afterCombinedUnits,organizedBefore=organized.Before,organizedAfter=organized.After};
             }
         }catch(Exception ex){result=new{status="BLOCKED",reason=ex.Message,itemId=id,removed=beforePlayer-CountCrop(Game1.player.Items,id,q.Quality),stored=CountCrop(StorageMenuItems(top),id,q.Quality)-beforeChest,requiresInspection=true};}
-        _cropReceipts[key]=result;_monitor.Log("[STORAGE PUT] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
+        _cropReceipts[key]=result;RefreshChestMemory(chest);_monitor.Log("[STORAGE PUT] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
     }
     private CommandResponse StackInventoryToStorage(GameCommand c)
     {
@@ -246,7 +248,7 @@ public partial class CommandExecutor
         object result;
         if(verified) {var organized=OrganizeStorageMenu((ItemGrabMenu)menu,top);result=new {status="COMPLETED",reason=stored>0?"ADD_TO_EXISTING_STACKS_AND_ORGANIZE_VERIFIED":"NO_MATCHING_STACKS; ORGANIZE_VERIFIED",removedFromInventory=removed,storedInChest=stored,organizedBefore=organized.Before,organizedAfter=organized.After};}
         else result=new {status="BLOCKED",reason="TRANSFER_DELTA_MISMATCH; no retry",removedFromInventory=removed,storedInChest=stored,organizedBefore=-1,organizedAfter=-1};
-        _monitor.Log("[STORAGE STACK EXISTING] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
+        RefreshChestMemory(StorageSource(menu)!);_monitor.Log("[STORAGE STACK EXISTING] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
     }
     private CommandResponse OrganizeStorage(GameCommand c)
     {
@@ -254,6 +256,7 @@ public partial class CommandExecutor
         if(menu is not ItemGrabMenu || StorageSource(menu)==null) throw new InvalidOperationException("Open a regular chest first");
         var top=ShopMember(menu,"ItemsToGrabMenu")??throw new InvalidOperationException("Missing chest inventory UI");
         var organized=OrganizeStorageMenu((ItemGrabMenu)menu,top);
+        RefreshChestMemory(StorageSource(menu)!);
         return FarmReply(c,new {status="COMPLETED",reason="ORGANIZE_TOTAL_VERIFIED",totalUnitsBefore=organized.Before,totalUnitsAfter=organized.After});
     }
     private CommandResponse CloseStorage(GameCommand c)

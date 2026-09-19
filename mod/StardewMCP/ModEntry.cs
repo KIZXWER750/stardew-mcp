@@ -46,6 +46,8 @@ public class ModEntry : Mod
         // Register events
         helper.Events.GameLoop.GameLaunched += OnGameLaunched;
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
+        helper.Events.GameLoop.Saving += OnSaving;
+        helper.Events.GameLoop.DayStarted += OnDayStarted;
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
         helper.Events.GameLoop.TimeChanged += OnTimeChanged;
@@ -62,10 +64,22 @@ public class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        _commandExecutor?.LoadLongTermMemory();
         _commandExecutor?.LoadPendingTrees();
         _agentUi?.StartHost();
         _agentUi?.CheckBedtimeAlarm();
         Monitor.Log($"Save loaded: {Game1.player.Name} on {Game1.player.farmName} Farm", LogLevel.Info);
+    }
+
+    private void OnSaving(object? sender, SavingEventArgs e)
+    {
+        _commandExecutor?.RefreshCurrentLocationChestMemory();
+        _commandExecutor?.FlushLongTermMemory();
+    }
+
+    private void OnDayStarted(object? sender, DayStartedEventArgs e)
+    {
+        _commandExecutor?.RefreshCurrentLocationChestMemory();
     }
 
     private void OnTimeChanged(object? sender, TimeChangedEventArgs e)
@@ -92,12 +106,17 @@ public class ModEntry : Mod
         if (!Context.IsWorldReady)
             return;
 
+        // Detect manual chest moves and content changes without requiring an AI command.
+        _commandExecutor?.RefreshCurrentLocationChestMemory();
+
         // Broadcast game state to connected clients
         _wsServer?.BroadcastState();
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
+        _commandExecutor?.FlushLongTermMemory();
+        _commandExecutor?.ClearLongTermMemorySession();
         _agentUi?.Shutdown();
         _agentUi?.ResetBedtimeAlarm();
         _commandExecutor?.CancelFarmOnTitle();

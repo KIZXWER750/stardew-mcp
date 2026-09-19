@@ -20,4 +20,20 @@ Check(!WorkPolicy.CanResume(true,900,2200,270,20,"1","1","TIME_LIMIT",20),"No sa
 Check(WorkPolicy.CanResume(true,600,2200,270,20,"1","2","TIME_LIMIT",20),"Next-day resume");
 Check(WorkPolicy.CanResume(true,900,2200,60,20,"1","1","LOW_ENERGY",23),"Recovered energy resume");
 Check(!WorkPolicy.CanResume(true,900,2200,44,20,"1","1","LOW_ENERGY",30),"Tiny energy change must not loop");
-Console.WriteLine("13 policy regression checks passed.");
+var oldNotebook=MemorySchema.Normalize(new NotebookDocument {SchemaVersion=0,Chests=new() {
+    new ChestMemory {Id="same",Location="Farm",TileX=1,TileY=2},
+    new ChestMemory {Id="same",Location="Farm",TileX=3,TileY=4}
+}});
+Check(oldNotebook.SchemaVersion==1,"Version-zero notebook must migrate to schema v1");
+Check(oldNotebook.Chests.Count==1 && oldNotebook.Chests[0].TileX==3,"Duplicate chest IDs must keep the newest record");
+var oldTasks=MemorySchema.Normalize(new TaskDocument {SchemaVersion=0,Tasks=new() {
+    new PersistentTask {Id="task",Status="PAUSED",Summary="resume later"}
+}});
+Check(oldTasks.SchemaVersion==1 && oldTasks.Tasks[0].Status==TaskStatuses.Paused,"Task migration must normalize status");
+Check(MemorySchema.CanTransition(TaskStatuses.Paused,TaskStatuses.Active),"Paused task must be resumable");
+Check(MemorySchema.CanTransition(TaskStatuses.Active,TaskStatuses.Completed),"Active task must be completable");
+Check(!MemorySchema.CanTransition(TaskStatuses.Completed,TaskStatuses.Active),"Terminal task must not restart implicitly");
+bool futureRejected=false;
+try {MemorySchema.Normalize(new NotebookDocument {SchemaVersion=99});} catch(InvalidOperationException) {futureRejected=true;}
+Check(futureRejected,"Unknown future schemas must be rejected for backup recovery");
+Console.WriteLine("19 policy and memory regression checks passed.");
