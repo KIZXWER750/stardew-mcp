@@ -95,7 +95,7 @@ public partial class CommandExecutor
         public string SeedItemId { get; set; } = "";
         public string ExistingCropPolicy { get; set; } = "PRESERVE_AND_REPORT";
         public int MaxTrees { get; set; } = 3;
-        public bool IncludeSaplings { get; set; }
+        public bool PreserveYoungTrees { get; set; }
         public List<string> ExcludedTiles { get; set; } = new();
         public List<string> HarvestEvidence { get; set; } = new();
         internal HashSet<Point> Harvested = new();
@@ -322,17 +322,17 @@ public partial class CommandExecutor
         int maxTrees=c.Params.TryGetValue("max_trees",out var maxTreeValue)?GetIntParam(maxTreeValue):3;
         if(maxTrees<1 || maxTrees>12) throw new InvalidOperationException("max_trees must be 1..12");
         j.MaxTrees=maxTrees;
-        if(c.Params.TryGetValue("include_saplings",out var includeSaplings)) {
-            j.IncludeSaplings=includeSaplings is JsonElement json
+        if(c.Params.TryGetValue("preserve_young_trees",out var preserveYoungTrees)) {
+            j.PreserveYoungTrees=preserveYoungTrees is JsonElement json
                 ? json.ValueKind==JsonValueKind.True
-                : Convert.ToBoolean(includeSaplings);
+                : Convert.ToBoolean(preserveYoungTrees);
         }
         j.ClearingPhase=j.Operation=="prepare";
         var treeTargets=new List<Point>();
         for(int y=j.Y;y<j.Y+j.Height;y++) for(int x=j.X;x<j.X+j.Width;x++) {
             var tile=ReadFarmTile(x,y);
             if(j.Operation=="trees") {
-                if(tile.IsWildTree && (tile.IsTreeStump || tile.GrowthStage>=5 || j.IncludeSaplings)) treeTargets.Add(new Point(x,y));
+                if(tile.IsWildTree && (!j.PreserveYoungTrees || tile.IsTreeStump || tile.GrowthStage>=5)) treeTargets.Add(new Point(x,y));
                 else j.ExcludedTiles.Add($"({x},{y}): not an eligible ordinary wild tree; terrain={tile.Terrain}");
                 continue;
             }

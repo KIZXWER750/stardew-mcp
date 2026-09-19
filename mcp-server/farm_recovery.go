@@ -27,7 +27,7 @@ func farmKey(op string, p PlotParams) string {
 		filter = "ALL_HOED_SOIL"
 	}
 	seed, policy := "", ""
-	maxTrees, includeSaplings := 0, false
+	maxTrees, preserveYoungTrees := 0, false
 	if op == "plant" {
 		seed = strings.TrimPrefix(p.SeedItemID, "(O)")
 		policy = p.ExistingCropPolicy
@@ -40,9 +40,9 @@ func farmKey(op string, p PlotParams) string {
 		if maxTrees == 0 {
 			maxTrees = 3
 		}
-		includeSaplings = p.IncludeSaplings
+		preserveYoungTrees = p.PreserveYoungTrees
 	}
-	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, includeSaplings})
+	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, preserveYoungTrees})
 	return string(b)
 }
 

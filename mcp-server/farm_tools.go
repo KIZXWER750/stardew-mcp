@@ -47,16 +47,16 @@ type PlotParams struct {
 	SeedItemID         string `json:"seed_item_id,omitempty" jsonschema:"Required for plant_plot: exact inventory seed item ID, e.g. (O)472; never guess"`
 	ExistingCropPolicy string `json:"existing_crop_policy,omitempty" jsonschema:"PRESERVE_AND_REPORT default, or REQUIRE_SAME_CROP"`
 
-	Location        string `json:"location" jsonschema:"The current map; this version requires Farm"`
-	X               int    `json:"x" jsonschema:"Northwest tile X"`
-	Y               int    `json:"y" jsonschema:"Northwest tile Y"`
-	Width           int    `json:"width" jsonschema:"Number of columns"`
-	Height          int    `json:"height" jsonschema:"Number of rows; total area at most 64"`
-	MinimumEnergy   int    `json:"minimum_energy,omitempty" jsonschema:"Energy reserve; default and minimum 20"`
-	StopTime        int    `json:"stop_time,omitempty" jsonschema:"Game HHMM deadline; default and latest 2200"`
-	TargetFilter    string `json:"target_filter,omitempty" jsonschema:"ALL_HOED_SOIL default or CROPS_ONLY for water"`
-	MaxTrees        int    `json:"max_trees,omitempty" jsonschema:"For remove_wild_trees only: maximum selected ordinary trees/stumps, default 3, range 1..12"`
-	IncludeSaplings bool   `json:"include_saplings,omitempty" jsonschema:"For remove_wild_trees only: also remove non-mature ordinary saplings; default false"`
+	Location           string `json:"location" jsonschema:"The current map; this version requires Farm"`
+	X                  int    `json:"x" jsonschema:"Northwest tile X"`
+	Y                  int    `json:"y" jsonschema:"Northwest tile Y"`
+	Width              int    `json:"width" jsonschema:"Number of columns"`
+	Height             int    `json:"height" jsonschema:"Number of rows; total area at most 64"`
+	MinimumEnergy      int    `json:"minimum_energy,omitempty" jsonschema:"Energy reserve; default and minimum 20"`
+	StopTime           int    `json:"stop_time,omitempty" jsonschema:"Game HHMM deadline; default and latest 2200"`
+	TargetFilter       string `json:"target_filter,omitempty" jsonschema:"ALL_HOED_SOIL default or CROPS_ONLY for water"`
+	MaxTrees           int    `json:"max_trees,omitempty" jsonschema:"For remove_wild_trees only: maximum selected ordinary trees/stumps, default 3, range 1..12"`
+	PreserveYoungTrees bool   `json:"preserve_young_trees,omitempty" jsonschema:"For remove_wild_trees only: preserve non-mature ordinary wild trees; default false, so all growth stages are removed"`
 }
 
 type CandidateParams struct {
@@ -145,7 +145,7 @@ func (p PlotParams) values(op string) map[string]interface{} {
 	}
 	return map[string]interface{}{"location": p.Location, "x": p.X, "y": p.Y, "width": p.Width, "height": p.Height,
 		"request_id": p.RequestID, "seed_item_id": p.SeedItemID, "existing_crop_policy": p.ExistingCropPolicy, "operation": op, "minimum_energy": energy, "stop_time": deadline, "target_filter": filter,
-		"max_trees": maxTrees, "include_saplings": p.IncludeSaplings}
+		"max_trees": maxTrees, "preserve_young_trees": p.PreserveYoungTrees}
 }
 
 type farmResult struct {

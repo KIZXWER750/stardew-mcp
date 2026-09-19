@@ -33,9 +33,12 @@ func TestTreeRequestIdentityIncludesSafetyScope(t *testing.T) {
 		t.Fatal("different tree limits shared an idempotency key")
 	}
 	q = p
-	q.IncludeSaplings = true
+	q.PreserveYoungTrees = true
 	if farmKey("trees", p) == farmKey("trees", q) {
-		t.Fatal("sapling authorization missing from idempotency key")
+		t.Fatal("young-tree preservation policy missing from idempotency key")
+	}
+	if p.values("trees")["preserve_young_trees"] != false {
+		t.Fatal("ordinary young trees must be removed by default")
 	}
 }
 

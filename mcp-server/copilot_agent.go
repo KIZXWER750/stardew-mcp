@@ -882,7 +882,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
-	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove up to max_trees ordinary wild trees or existing ordinary tree stumps inside one explicit Farm rectangle. Mature trees are selected by default; include_saplings must be explicitly true to remove younger trees. Uses the Axe from cardinal approaches until each selected terrain feature, including its stump, is verified absent. Always preserves fruit trees, bushes, crops, buildings, machines, placed objects and resource clumps. Does not collect dropped items.",
+	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove up to max_trees ordinary wild trees at any growth stage, or existing ordinary tree stumps, inside one explicit Farm rectangle. Young trees are removed by default; set preserve_young_trees=true only when the user explicitly asks to keep them. Uses the Axe from cardinal approaches until each selected terrain feature, including its stump, is verified absent. Always preserves fruit trees, crops, buildings, machines and placed facilities. Does not collect dropped items.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("trees", p)
 		})
