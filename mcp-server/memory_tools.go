@@ -9,7 +9,7 @@ import (
 const memoryToolRules = `
 LONG-TERM MEMORY AND GAME KNOWLEDGE:
 Memory is save-specific. Chest contents are last-observed snapshots and must not be presented as current without a fresh inspection.
-Game knowledge is extracted from the installed game and mod content. Current game state, live menus, conditions and passability remain final authority.
+Game knowledge combines installed game/mod extraction with an attributed Stardew Valley Wiki fact cache. Current game state, live menus, conditions and passability remain final authority. Wiki results include their page URL, revision and verification status and must not override installed or live data.
 Use search_memory and get_chest_memory before relying on prior chest purposes, unfinished work or notes.
 Only call set_chest_purpose or remember_note when the current user request provides or authorizes the information. Set confirmed_by_user=false for an inference.
 Persistent tasks must describe a concrete unfinished intention. Never create a task merely to restate completed work, tool output or speculative advice.
@@ -57,8 +57,8 @@ type PersistentTaskIDParams struct {
 	TaskID string `json:"task_id"`
 }
 type KnowledgeLookupParams struct {
-	Subject string `json:"subject,omitempty" jsonschema:"Location, shop or route text to find"`
-	Type    string `json:"type,omitempty" jsonschema:"Optional location, route or shop"`
+	Subject string `json:"subject,omitempty" jsonschema:"Location, route, shop, crop, fish, villager, festival, recipe, bundle or fact text to find"`
+	Type    string `json:"type,omitempty" jsonschema:"Optional location, route, shop, wiki, crops, fish, villagers, festivals, crafting or bundles"`
 }
 type WorldRouteParams struct {
 	From string `json:"from,omitempty" jsonschema:"Internal start location; defaults to current location"`
@@ -144,7 +144,7 @@ func (a *StardewAgent) defineMemoryTools() []copilot.Tool {
 			}
 			return memoryRead("memory_task_complete", map[string]interface{}{"task_id": p.TaskID})
 		}),
-		copilot.DefineTool("lookup_game_knowledge", "Search installed-content knowledge about locations, map connections and shops. Read-only; live state is final authority.", func(p KnowledgeLookupParams, _ copilot.ToolInvocation) (string, error) {
+		copilot.DefineTool("lookup_game_knowledge", "Search installed-content knowledge plus attributed wiki facts about crops, fish, villagers, festivals, shops, crafting and bundles. Use type=wiki or a category to browse it. Read-only; installed and live state are final authority.", func(p KnowledgeLookupParams, _ copilot.ToolInvocation) (string, error) {
 			return memoryRead("knowledge_lookup", map[string]interface{}{"subject": p.Subject, "type": p.Type})
 		}),
 		copilot.DefineTool("find_world_route", "Find a read-only cached location-to-location route from installed map data. It does not move or prove current access.", func(p WorldRouteParams, _ copilot.ToolInvocation) (string, error) {

@@ -11,4 +11,8 @@
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.*" />
     <PackageReference Include="WebSocketSharp-netstandard" Version="1.0.1" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="data\knowledge\wiki\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

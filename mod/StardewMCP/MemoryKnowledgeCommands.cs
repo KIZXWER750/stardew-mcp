@@ -115,9 +115,17 @@ public partial class CommandExecutor
             ? _knowledge.Routes.Where(p => Match(p.From) || Match(p.To) || Match(p.Action)).Take(100).ToList() : new();
         var shops = (type == "" || type == "shop" || type == "shops")
             ? _knowledge.Shops.Where(p => Match(p.Id) || Match(p.Location)).Take(100).ToList() : new();
+        bool explicitWikiType = type == "wiki" || _wikiKnowledgeCounts.Keys.Any(p => type == p || type == p.TrimEnd('s'));
+        bool includeWiki = explicitWikiType || subject != "";
+        var wiki = includeWiki ? _wikiKnowledge.Where(p =>
+                (type == "" || type == "wiki" || type.TrimEnd('s') == p.Category.TrimEnd('s'))
+                && (Match(p.Subject) || Match(p.SubjectId) || Match(p.Category)
+                    || JsonSerializer.Serialize(p.Facts).Contains(subject, StringComparison.OrdinalIgnoreCase)))
+            .Take(100).ToList() : new();
         return FarmReply(command, new { status = "OBSERVED", subject, type, contentSignature = _knowledge.ContentSignature,
             generatedAtUtc = _knowledge.GeneratedAtUtc, locations, routes, shops,
-            note = "Knowledge is extracted from the installed game/mod content. Live status remains final authority." });
+            wikiSummary = new { retrievedAtUtc = _wikiKnowledgeRetrievedAtUtc, counts = _wikiKnowledgeCounts }, wiki,
+            note = "Installed game/mod content and live state outrank wiki facts. Wiki entries are attributed snapshots; use source.pageRevision and verificationStatus when judging freshness." });
     }
 
     private CommandResponse FindWorldRoute(GameCommand command)

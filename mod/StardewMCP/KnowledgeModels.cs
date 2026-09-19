@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 
 namespace StardewMCP;
 
@@ -65,6 +66,39 @@ public sealed class ShopCounterKnowledge
     public int Y { get; set; }
     public string Action { get; set; } = "";
     public string Source { get; set; } = "map_action";
+}
+
+public sealed class WikiKnowledgeCollection
+{
+    public int SchemaVersion { get; set; }
+    public string Category { get; set; } = "";
+    public string Language { get; set; } = "";
+    public string RetrievedAtUtc { get; set; } = "";
+    public string TargetGameVersion { get; set; } = "";
+    public string License { get; set; } = "";
+    public List<WikiKnowledgeEntry> Entries { get; set; } = new();
+}
+
+public sealed class WikiKnowledgeEntry
+{
+    public string Subject { get; set; } = "";
+    public string SubjectId { get; set; } = "";
+    public string Category { get; set; } = "";
+    public Dictionary<string, JsonElement> Facts { get; set; } = new();
+    public int AuthorityRank { get; set; }
+    public string VerificationStatus { get; set; } = "";
+    public WikiKnowledgeSource Source { get; set; } = new();
+}
+
+public sealed class WikiKnowledgeSource
+{
+    public string Type { get; set; } = "";
+    public string PageTitle { get; set; } = "";
+    public string PageUrl { get; set; } = "";
+    public long? PageId { get; set; }
+    public long? PageRevision { get; set; }
+    public string RevisionTimestamp { get; set; } = "";
+    public string License { get; set; } = "";
 }
 
 public static class KnowledgeSchema

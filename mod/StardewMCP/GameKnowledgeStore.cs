@@ -15,6 +15,9 @@ namespace StardewMCP;
 public partial class CommandExecutor
 {
     private WorldKnowledgeDocument _knowledge = new();
+    private readonly List<WikiKnowledgeEntry> _wikiKnowledge = new();
+    private readonly Dictionary<string, int> _wikiKnowledgeCounts = new(StringComparer.OrdinalIgnoreCase);
+    private string _wikiKnowledgeRetrievedAtUtc = "";
     private string _knowledgePath = "";
 
     public void LoadGameKnowledge()
@@ -25,13 +28,44 @@ public partial class CommandExecutor
         WorldKnowledgeDocument? prior = ReadKnowledgeFile(_knowledgePath);
         _knowledge = ExtractGameKnowledge(signature, prior);
         WriteKnowledgeFile();
-        _monitor.Log($"[KNOWLEDGE] Extracted {_knowledge.Locations.Count} locations, {_knowledge.Routes.Count} routes and {_knowledge.Shops.Count} shops ({signature[..12]}).", LogLevel.Info);
+        LoadWikiKnowledge();
+        _monitor.Log($"[KNOWLEDGE] Extracted {_knowledge.Locations.Count} locations, {_knowledge.Routes.Count} routes and {_knowledge.Shops.Count} shops; loaded {_wikiKnowledge.Count} attributed wiki facts ({signature[..12]}).", LogLevel.Info);
     }
 
     public void ClearGameKnowledgeSession()
     {
         _knowledge = new();
+        _wikiKnowledge.Clear();
+        _wikiKnowledgeCounts.Clear();
+        _wikiKnowledgeRetrievedAtUtc = "";
         _knowledgePath = "";
+    }
+
+    private void LoadWikiKnowledge()
+    {
+        _wikiKnowledge.Clear();
+        _wikiKnowledgeCounts.Clear();
+        _wikiKnowledgeRetrievedAtUtc = "";
+        string directory = Path.Combine(_helper.DirectoryPath, "data", "knowledge", "wiki", "en");
+        if (!Directory.Exists(directory)) return;
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        foreach (string path in Directory.GetFiles(directory, "*.json").Where(p => !Path.GetFileName(p).Equals("manifest.json", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                WikiKnowledgeCollection? collection = JsonSerializer.Deserialize<WikiKnowledgeCollection>(File.ReadAllText(path), options);
+                if (collection == null || collection.SchemaVersion != 1) continue;
+                collection.Entries ??= new();
+                _wikiKnowledge.AddRange(collection.Entries.Where(p => !string.IsNullOrWhiteSpace(p.Subject)));
+                _wikiKnowledgeCounts[collection.Category] = collection.Entries.Count;
+                if (string.CompareOrdinal(collection.RetrievedAtUtc, _wikiKnowledgeRetrievedAtUtc) > 0)
+                    _wikiKnowledgeRetrievedAtUtc = collection.RetrievedAtUtc;
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"[KNOWLEDGE] Could not read wiki cache {Path.GetFileName(path)}: {ex.Message}", LogLevel.Warn);
+            }
+        }
     }
 
     private string BuildContentSignature()

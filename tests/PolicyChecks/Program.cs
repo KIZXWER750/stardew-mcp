@@ -49,4 +49,6 @@ var worldRoute=KnowledgeSchema.FindRoute(knowledge,"Farm","Town");
 Check(worldRoute!=null && worldRoute.Count==2 && worldRoute[0].To=="BusStop","Knowledge route must preserve ordered graph hops");
 Check(KnowledgeSchema.FindRoute(knowledge,"Town","Farm")==null,"Knowledge route must not invent reverse edges");
 Check(KnowledgeSchema.FindRoute(knowledge,"Farm","Farm")!.Count==0,"Same-location knowledge route must be empty");
-Console.WriteLine("24 policy, memory and knowledge regression checks passed.");
+var wiki=System.Text.Json.JsonSerializer.Deserialize<WikiKnowledgeCollection>("{\"schemaVersion\":1,\"category\":\"crops\",\"entries\":[{\"subject\":\"Parsnip\",\"category\":\"crop\",\"facts\":{\"growthDays\":4},\"source\":{\"pageUrl\":\"https://stardewvalleywiki.com/Parsnip\",\"pageRevision\":123}}]}",new System.Text.Json.JsonSerializerOptions {PropertyNameCaseInsensitive=true});
+Check(wiki?.Entries.Count==1 && wiki.Entries[0].Facts["growthDays"].GetInt32()==4 && wiki.Entries[0].Source.PageRevision==123,"Wiki cache must retain normalized facts and provenance");
+Console.WriteLine("25 policy, memory and knowledge regression checks passed.");
