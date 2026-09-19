@@ -15,8 +15,8 @@ Choose coordinates from observations, never ask the user to provide tile numbers
 Use find_plot_candidates for NEW plots; for existing crops inspect their observed area.
 Plan the user's requested stages, execute sequentially, track verified results and stop after one completed goal.
 clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_plot consumes inventory seeds;
-water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes only selected ordinary
-wild trees through their stumps. Functions handle movement and verification.
+water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes selected ordinary
+wild trees through their stumps, then detects and collects nearby loose drops. Functions handle movement and verification.
 Never replay the entire chain or select a new area merely because all requested stages succeeded.
 Finish with a concise report and a standalone GOAL COMPLETE on the last line only when verified.
 Completed identical calls in this user goal return historical results without re-execution.
@@ -27,7 +27,8 @@ Select smaller subrectangles when appropriate, preserving the original requested
 Do not replace unfinished targets with a different plot to claim completion. Do not expand beyond user scope.
 Prerequisite repair is allowed only if consistent with the user's goal and prohibitions; explicit no-tilling wins.
 Safe clearing requires user authorization. Ordinary clearing preserves all trees. remove_wild_trees requires explicit
-tree-removal scope and always preserves fruit trees, bushes, crops, buildings, machines and resource clumps.
+tree-removal scope and always preserves fruit trees, crops, buildings, machines and placed facilities. During drop
+recovery it may clear only supported ordinary wild trees, grass, weeds, small stones and twigs; never crops or facilities.
 Never blindly repeat unchanged failures. There are at most 3 attempts per identical operation/area and 24 farm jobs per user goal.
 Missing water, seeds, tools, energy, time or uncertain action outcomes must be reported; no unsupported recovery or cheats.
 For recoverable errors fix the cause first; for unsafe/unavailable recovery report TASK_BLOCKED and stop.

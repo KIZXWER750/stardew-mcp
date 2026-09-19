@@ -882,7 +882,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
-	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove up to max_trees ordinary wild trees at any growth stage, or existing ordinary tree stumps, inside one explicit Farm rectangle. Young trees are removed by default; set preserve_young_trees=true only when the user explicitly asks to keep them. Uses the Axe from cardinal approaches until each selected terrain feature, including its stump, is verified absent. Always preserves fruit trees, crops, buildings, machines and placed facilities. Does not collect dropped items.",
+	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove up to max_trees ordinary wild trees at any growth stage, or existing ordinary tree stumps, inside one explicit Farm rectangle. Young trees are removed by default; set preserve_young_trees=true only when the user explicitly asks to keep them. A basic Axe is bounded to 10 verified hits for a mature tree and 5 for its stump; young trees have a smaller bound. After removal, detect real location.debris drops, approach and collect them, clearing only supported non-protected grass, weeds, small stones, twigs or ordinary wild trees when needed for access. Always preserve fruit trees, crops, buildings, machines and placed facilities.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("trees", p)
 		})
@@ -1950,6 +1950,22 @@ func (a *StardewAgent) formatGameStateContext(state *GameState) string {
 		sb.WriteString("\n--- WARPS/DOORS ---\n")
 		for _, w := range state.Surroundings.WarpPoints {
 			sb.WriteString(fmt.Sprintf("- (%d, %d) -> %s\n", w.X, w.Y, w.TargetLocation))
+		}
+	}
+
+	if len(state.Surroundings.NearbyDebris) > 0 {
+		sb.WriteString("\n--- OBSERVED LOOSE ITEMS AND DEBRIS ---\n")
+		shownDrops := 0
+		for _, d := range state.Surroundings.NearbyDebris {
+			if d.Source == "location_debris" || d.CanBePickedUp {
+				fmt.Fprintf(&sb, "- %s at (%d,%d) id=%s stack=%d chunks=%d source=%s pickup=%v\n",
+					d.Name, d.X, d.Y, d.QualifiedItemID, d.Stack, d.ChunkCount, d.Source, d.CanBePickedUp)
+				shownDrops++
+				if shownDrops >= 30 {
+					sb.WriteString("- additional drops omitted from prompt\n")
+					break
+				}
+			}
 		}
 	}
 

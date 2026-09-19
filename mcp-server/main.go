@@ -182,11 +182,15 @@ type NearbyResourceClump struct {
 }
 
 type NearbyDebris struct {
-	X             int    `json:"x"`
-	Y             int    `json:"y"`
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	CanBePickedUp bool   `json:"canBePickedUp"`
+	X               int    `json:"x"`
+	Y               int    `json:"y"`
+	Name            string `json:"name"`
+	Type            string `json:"type"`
+	CanBePickedUp   bool   `json:"canBePickedUp"`
+	QualifiedItemID string `json:"qualifiedItemId,omitempty"`
+	Stack           int    `json:"stack,omitempty"`
+	Source          string `json:"source,omitempty"`
+	ChunkCount      int    `json:"chunkCount,omitempty"`
 }
 
 type NearbyBuilding struct {

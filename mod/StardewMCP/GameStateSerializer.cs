@@ -1034,7 +1034,11 @@ public class GameStateSerializer
                             Y = (int)pos.Y,
                             Name = obj.Name,
                             Type = obj.isForage() ? "forage" : "spawned",
-                            CanBePickedUp = true
+                            CanBePickedUp = true,
+                            QualifiedItemId = obj.QualifiedItemId,
+                            Stack = obj.Stack,
+                            Source = "map_object",
+                            ChunkCount = 1
                         });
                     }
                     else if (IsDebrisObject(obj))
@@ -1045,10 +1049,50 @@ public class GameStateSerializer
                             Y = (int)pos.Y,
                             Name = obj.Name,
                             Type = GetDebrisType(obj),
-                            CanBePickedUp = false
+                            CanBePickedUp = false,
+                            QualifiedItemId = obj.QualifiedItemId,
+                            Stack = obj.Stack,
+                            Source = "map_obstacle",
+                            ChunkCount = 1
                         });
                     }
                 }
+            }
+
+            // Tree, rock and crop drops are Debris entities, not map Objects. The
+            // previous serializer omitted this collection entirely, so freshly
+            // dropped wood, sap and seeds were invisible to the agent.
+            foreach (var loose in location.debris.ToList())
+            {
+                if (loose.Chunks == null || loose.Chunks.Count == 0)
+                    continue;
+                var chunk = loose.Chunks.FirstOrDefault();
+                if (chunk == null)
+                    continue;
+                Vector2 position = chunk.position.Value;
+                int x = (int)Math.Floor(position.X / Game1.tileSize);
+                int y = (int)Math.Floor(position.Y / Game1.tileSize);
+                if (Math.Abs(x - centerX) > ScanRadius || Math.Abs(y - centerY) > ScanRadius)
+                    continue;
+                bool collectible = loose.debrisType.Value is Debris.DebrisType.OBJECT
+                    or Debris.DebrisType.RESOURCE or Debris.DebrisType.ARCHAEOLOGY;
+                Item? item = loose.item;
+                string itemId = item?.QualifiedItemId ?? loose.itemId.Value ?? "";
+                int stack = item?.Stack ?? 0;
+                if (stack <= 0)
+                    stack = Math.Max(1, loose.Chunks.Count);
+                debris.Add(new NearbyDebris
+                {
+                    X = x,
+                    Y = y,
+                    Name = item?.DisplayName ?? (itemId == "" ? loose.debrisType.Value.ToString() : itemId),
+                    Type = "loose_item",
+                    CanBePickedUp = collectible,
+                    QualifiedItemId = itemId,
+                    Stack = stack,
+                    Source = "location_debris",
+                    ChunkCount = loose.Chunks.Count
+                });
             }
         }
         catch { /* Ignore concurrent modification errors */ }
@@ -1603,6 +1647,10 @@ public class NearbyDebris
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public bool CanBePickedUp { get; set; }
+    public string QualifiedItemId { get; set; } = "";
+    public int Stack { get; set; }
+    public string Source { get; set; } = "";
+    public int ChunkCount { get; set; }
 }
 
 public class NearbyBuilding
