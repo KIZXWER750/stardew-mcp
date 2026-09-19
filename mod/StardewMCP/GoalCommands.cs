@@ -83,6 +83,10 @@ public partial class CommandExecutor
         string location = ShopText(command, "required_location").Trim();
         if (day < CurrentDayIndex() || time < 600 || time > 2600 || time % 100 >= 60 || energy < 0)
             throw new InvalidOperationException("Invalid wakeup day, time, or energy condition.");
+        int requestedTime = time;
+        bool pierreTravelLeadApplied = (prompt.Contains("Pierre", StringComparison.OrdinalIgnoreCase) || prompt.Contains("피에르"))
+            && time == 900 && !location.Equals("SeedShop", StringComparison.OrdinalIgnoreCase);
+        if (pierreTravelLeadApplied) { time = 830; location = ""; }
         foreach (GoalWakeup old in _goals.Wakeups.Where(p => p.GoalId.Equals(goal.Id, StringComparison.OrdinalIgnoreCase)
             && p.Status == "scheduled" && GoalQuestionPolicy.Fingerprint(p.Prompt) == GoalQuestionPolicy.Fingerprint(prompt)))
             old.Status = "cancelled";
@@ -90,7 +94,7 @@ public partial class CommandExecutor
             NotBeforeTime = time, MinimumEnergy = energy, RequiredLocation = location,
             CreatedAtUtc = DateTime.UtcNow.ToString("O") };
         _goals.Wakeups.Add(wakeup); _goalsDirty = true; FlushLongTermMemory();
-        return FarmReply(command, new { status = "SCHEDULED", wakeup,
+        return FarmReply(command, new { status = "SCHEDULED", wakeup, requestedTime, pierreTravelLeadApplied,
             note = "The in-game host will invoke the AI once when every saved condition is true, including after a restart." });
     }
 

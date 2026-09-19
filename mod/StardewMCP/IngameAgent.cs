@@ -176,6 +176,21 @@ public sealed class IngameAgent
         } catch(Exception ex) {Status="목표 답변 저장 실패: "+ex.Message;Record(Status);return false;}
     }
 
+    public bool SubmitAgentAnswer(string questionId,string answer)
+    {
+        answer=(answer??"").Trim();
+        if(answer.Length is < 1 or > 2000) {Status="답변을 1~2000자로 입력하세요.";return false;}
+        if(Busy) {Status="현재 작업을 종료한 뒤 답변하세요.";return false;}
+        try {
+            AgentQuestion question=executor.AnswerAgentQuestion(questionId);
+            string continuation="CONTINUE AFTER DEDICATED PLAYER ANSWER\nOriginal task context: "+question.ContinuationContext
+                +"\nQuestion: "+question.Prompt+"\nUser answer: "+answer
+                +"\nInspect live state and continue the original task. Do not ask this question again.";
+            if(StartGoal(continuation,false,false)) return true;
+            Status="답변을 받았지만 AI 재개를 시작하지 못했습니다. F6에서 다시 요청하세요.";return true;
+        } catch(Exception ex) {Status="답변 처리 실패: "+ex.Message;Record(Status);return false;}
+    }
+
     private int CurrentBedtimeLevel(int time)
     {
         if(time>=Config.FinalBedtimeAlarm) return 3;
@@ -261,9 +276,10 @@ public sealed class IngameAgent
                     if(Result=="실행 중") Result="작업이 종료되었습니다: "+text;
                     Result=AddSnapshotToBareCompletion(Result);
                     bool waitingForGoalInput=executor.TryGetPendingGoalQuestion(out _,out GoalQuestion? pendingQuestion) && pendingQuestion!=null;
-                    if(waitingForGoalInput) {
-                        Status="장기 목표에 사용자 답변이 필요합니다.";
-                        Result="전용 질문창에서 답변하면 같은 목표의 문맥으로 계속됩니다.";
+                    bool waitingForAgentInput=executor.TryGetPendingAgentQuestion(out AgentQuestion? agentQuestion) && agentQuestion!=null;
+                    if(waitingForGoalInput || waitingForAgentInput) {
+                        Status="AI가 전용 질문창에서 사용자 답변을 기다립니다.";
+                        Result="전용 질문창에서 답변하면 같은 작업 문맥으로 계속됩니다.";
                     } else if(executor.HasPendingGoalPlanAutomation()) {
                         Status="장기 목표의 다음 체크포인트를 자동 실행할 예정입니다.";
                     } else if(string.IsNullOrWhiteSpace(pendingBedtimeGoal)) PostResultToChat(Result);

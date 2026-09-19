@@ -76,7 +76,8 @@ func (a *StardewAgent) beginFarmAttempt(key string) (string, error) {
 		waterPause := item.Status == "PAUSED" && item.Reason == "NO_WATER" && strings.HasPrefix(key, `["water",`)
 		energyPause := item.Status == "PAUSED" && item.Reason == "LOW_ENERGY"
 		timePause := item.Status == "PAUSED" && item.Reason == "TIME_LIMIT"
-		if item.Status != "BLOCKED" && !waterPause && !energyPause && !timePause {
+		inventoryPause := item.Status == "PAUSED" && strings.HasPrefix(item.Reason, "INVENTORY_FULL")
+		if item.Status != "BLOCKED" && !waterPause && !energyPause && !timePause && !inventoryPause {
 			return "", fmt.Errorf("PREVIOUS_%s: do not repeat cancelled, paused, active or uncertain work; report the existing result", item.Status)
 		}
 		if waterPause && a.farmRefillEpoch <= item.RefillEpoch {
@@ -88,7 +89,7 @@ func (a *StardewAgent) beginFarmAttempt(key string) (string, error) {
 		if timePause && a.farmDayEpoch <= item.DayEpoch {
 			return "", fmt.Errorf("NEXT_DAY_REQUIRED: verify sleep and the next morning before resuming this operation")
 		}
-		if !energyPause && !timePause && item.Epoch >= a.farmEpoch {
+		if !energyPause && !timePause && !inventoryPause && item.Epoch >= a.farmEpoch {
 			return "", fmt.Errorf("UNCHANGED_FAILURE: inspect and complete an authorized prerequisite repair before retrying this operation")
 		}
 		if item.Attempts >= 3 {
@@ -155,6 +156,9 @@ func recoveryHint(result farmResult, op string) farmRecovery {
 	}
 	if result.Status == "PAUSED" && result.Reason == "TIME_LIMIT" {
 		return farmRecovery{Candidate: true, RequiresUserScope: true, NextSteps: "If ending the day is authorized, call manage_daily_life with allow_sleep=true. Preserve this operation and resume its unfinished state on a later user goal; do not restart completed stages tonight."}
+	}
+	if result.Status == "PAUSED" && strings.HasPrefix(result.Reason, "INVENTORY_FULL") {
+		return farmRecovery{Candidate: true, RequiresUserScope: true, NextSteps: "Free at least one compatible inventory slot using an authorized chest or sale, verify the changed inventory, then immediately retry this same unfinished operation. The retry rechecks live capacity and is limited to three attempts."}
 	}
 	if op == "water" && result.Status == "PAUSED" && result.Reason == "NO_WATER" {
 		return farmRecovery{Candidate: true, RequiresUserScope: true, NextSteps: "Keep original plot and filter. If refilling is not forbidden, find_water_sources, refill_watering_can at an observed reachable source, then water_plot SAME plot/filter. Wet tiles are skipped. Do not restart other completed stages. Stop if source/refill cannot be verified."}

@@ -112,6 +112,15 @@ func TestGoalWaitingMarker(t *testing.T) {
 	}
 }
 
+func TestPlayerQuestionDetection(t *testing.T) {
+	if !looksLikePlayerQuestion("보유 금액은 476골드입니다. 구매 예산을 정해 주세요.") {
+		t.Fatal("Korean decision request should be routed to the dedicated UI")
+	}
+	if looksLikePlayerQuestion("작업을 완료했습니다.\nGOAL COMPLETE") {
+		t.Fatal("completed response must not be treated as a question")
+	}
+}
+
 func TestWaterCompletion(t *testing.T) {
 	s := &GameState{}
 	s.Player.Location = "Farm"

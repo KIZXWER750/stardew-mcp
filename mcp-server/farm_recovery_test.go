@@ -156,3 +156,19 @@ func TestVerifiedLifeRecoveryUnlocksOnlyMatchingPause(t *testing.T) {
 		t.Fatal("verified next day did not unlock task", err)
 	}
 }
+
+func TestInventoryPauseCanRetryAfterCapacityRepair(t *testing.T) {
+	a := &StardewAgent{}
+	key := farmKey("harvest", PlotParams{Location: "Farm", X: 72, Y: 18, Width: 4, Height: 4})
+	if _, err := a.beginFarmAttempt(key); err != nil {
+		t.Fatal(err)
+	}
+	a.endFarmAttempt(key, "PAUSED", `{"status":"PAUSED","reason":"INVENTORY_FULL"}`)
+	if _, err := a.beginFarmAttempt(key); err != nil {
+		t.Fatal("inventory repair must permit a verified-capacity retry", err)
+	}
+	hint := recoveryHint(farmResult{Status: "PAUSED", Reason: "INVENTORY_FULL"}, "harvest")
+	if !hint.Candidate || !strings.Contains(hint.NextSteps, "immediately retry") {
+		t.Fatal(hint)
+	}
+}

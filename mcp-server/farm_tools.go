@@ -22,6 +22,10 @@ wild trees through their stumps, then detects and collects nearby loose drops. F
 Crop observations distinguish dead=true with hasCrop=true from living crops. Dead crops never need water and cannot
 be planted over. When dead crops exist in an intended work area, call remove_dead_crops first; it uses the normal
 Scythe input and verifies that each dead crop disappeared before planting or watering that area.
+During every crop-care visit, inspect the planted rectangle and its one-tile perimeter. If normal clearing is authorized,
+remove observed weeds, grass, twigs and small stones from that perimeter before watering or leaving so spreading debris
+cannot destroy crops. Preserve crops, HoeDirt, trees, buildings and placed facilities. Use small clear_area strips so each
+rectangle remains within the 64-tile limit; do not clear unrelated parts of the farm.
 Every observed ordinary tree includes treeState, isStump, hitsRequired for its current state,
 estimatedTotalHitsToRemove and removalSequence. Use those fields instead of treating every axe obstacle as a one-hit twig.
 When preserving young trees or selecting a mature tree, use only treeState=mature_tree with isStump=false,

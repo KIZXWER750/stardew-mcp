@@ -19,7 +19,8 @@ If essential information cannot be safely inferred, create a draft/active goal w
 Do not ask through ordinary final chat when request_goal_input is available. A later continuation contains the saved answer; inspect the goal before continuing.
 Never repeat an answered question. request_goal_input returns ALREADY_ANSWERED with the saved answer when the normalized question matches question history; reuse that answer and do not call request_goal_input again for the same issue. If more input is truly required, ask a materially different question that names the newly unresolved condition.
 Routine implementation choices are yours when their action category is authorized: choose the crop/seed, affordable quantity, ordinary crop care, safe shop timing, and the lowest-value unprotected sale needed for inventory space. Do not ask the user to make those choices. If request_goal_input returns AUTONOMOUS_DECISION_REQUIRED, inspect live state and decide.
-When progress depends on a future day/time, energy recovery, or location, call schedule_goal_wakeup with a concrete continuation prompt before returning GOAL WAITING. The in-game host invokes that prompt once after all conditions are true; do not rely on the user to type another command.
+Never place a question or request for a decision in ordinary final chat. For a persistent goal use request_goal_input. For any other task use request_player_input; the dedicated in-game window will return the answer with the original task context. After creating either question, stop the run.
+When progress depends on a future day/time, energy recovery, or location, call schedule_goal_wakeup with a concrete continuation prompt before returning GOAL WAITING. Schedule travel departure before the destination event: for Pierre's 09:00 opening, normally wake at 08:30 from Farm/FarmHouse so travel can begin, then wait safely at the destination if early. The game enforces this 30-minute lead when a Pierre-opening wakeup is accidentally requested for 09:00 outside SeedShop. The in-game host invokes that prompt once after all conditions are true; do not rely on the user to type another command.
 When normal farm clearing is authorized and planned work is finished, use spare energy on safe observed trees or removable obstacles before sleeping. By default continue bounded clearing jobs until energy is near 50% of maximum, the latest work time approaches, inventory fills, or no safe target remains; completing one target alone is not a reason to stop.
 For every newly created broad money goal, call build_goal_plan even when the inventory sale inspection is empty. Existing live farm crops are a distinct strategy: tend_existing_crops permits watering and harvesting only already-planted crops, while farm_crops permits preparing and planting a new plot. If the user allows crop selling and forbids only seed purchases or new farming, record tend_existing_crops as within scope; never widen that to buy_seeds or farm_crops. Do not end in ordinary TASK_BLOCKED merely because the inventory is empty. Preserve an explicit prohibition unless the dedicated answer changes it.
 Only after an answered saved question explicitly authorizes its named actions, use apply_goal_action_authorization with that question ID and the exact named actions, then refresh_goal_plan.
@@ -78,6 +79,12 @@ type GoalWakeupParams struct {
 
 type GoalWakeupCancelParams struct {
 	WakeupID string `json:"wakeup_id"`
+}
+
+type PlayerInputParams struct {
+	Question            string   `json:"question" jsonschema:"One concise question that is essential to continue"`
+	Options             []string `json:"options,omitempty" jsonschema:"Zero to six short answer examples"`
+	ContinuationContext string   `json:"continuation_context" jsonschema:"Concise original task and completed-state context needed to continue after the answer"`
 }
 
 func goalCommand(action string, values map[string]interface{}) (string, error) {
@@ -157,6 +164,12 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 				return "TASK_BLOCKED: wakeup_id required", nil
 			}
 			return goalCommand("goal_wakeup_cancel", map[string]interface{}{"wakeup_id": p.WakeupID})
+		}),
+		copilot.DefineTool("request_player_input", "For a task that is not represented by a persistent goal, show the dedicated in-game answer window. Never ask through final chat. Include enough continuation_context to resume the same task after the answer.", func(p PlayerInputParams, _ copilot.ToolInvocation) (string, error) {
+			if strings.TrimSpace(p.Question) == "" || len(p.Options) > 6 {
+				return "TASK_BLOCKED: one question and at most six options required", nil
+			}
+			return goalCommand("agent_question", map[string]interface{}{"question": p.Question, "options": p.Options, "continuation_context": p.ContinuationContext})
 		}),
 	}
 }

@@ -503,6 +503,7 @@ public partial class CommandExecutor
                 "goal_daily_life_policy" => SetGoalDailyLifePolicyCommand(command),
                 "goal_wakeup_schedule" => ScheduleGoalWakeupCommand(command),
                 "goal_wakeup_cancel" => CancelGoalWakeupCommand(command),
+                "agent_question" => RequestAgentQuestionCommand(command),
                 "capability_registry" => CapabilityRegistry(command),
                 "economic_state" => EconomicState(command),
                 "crop_profit_options" => CropProfitOptions(command),

@@ -886,7 +886,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("plant", p)
 		})
-	harvestPlotTool := copilot.DefineTool("harvest_plot", "Harvest ready crops only and select the installed crop data's required method per tile: Grab interaction for ordinary crops or Scythe for wheat, amaranth, kale and any other scythe-harvest crop. Verify crop changes, preserve immature crops, and report inventory/debris deltas. No replanting. Executes all movement internally.",
+	harvestPlotTool := copilot.DefineTool("harvest_plot", "Harvest every ready crop in the requested plot before making a sale trip, selecting the installed crop data's required method per tile: Grab interaction or Scythe. Existing compatible inventory stacks count as capacity; an empty slot is not required for every crop. If genuinely full, free capacity and immediately retry the same unfinished plot. Verify crop changes and preserve immature crops. No replanting.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
@@ -1009,7 +1009,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
-			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization", "set_goal_daily_life_policy", "schedule_goal_wakeup", "cancel_goal_wakeup",
+			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "request_player_input", "apply_goal_action_authorization", "set_goal_daily_life_policy", "schedule_goal_wakeup", "cancel_goal_wakeup",
 			"inspect_capability_registry", "assess_economic_state", "analyze_crop_profit_options", "find_profit_opportunities",
 			"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan",
 			"start_goal_plan_execution", "continue_goal_plan_execution", "bind_goal_plan_plot", "report_goal_plan_step",
@@ -1356,6 +1356,26 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 					}
 				}
 			}
+		}
+
+		if message != nil && !goalCompleted && looksLikePlayerQuestion(strings.TrimSpace(message.Content)) {
+			question := []rune(strings.TrimSpace(message.Content))
+			if len(question) > 2000 {
+				question = question[:2000]
+			}
+			contextText := []rune(goal)
+			if len(contextText) > 4000 {
+				contextText = contextText[:4000]
+			}
+			response, err := gameClient.SendCommand("agent_question", map[string]interface{}{
+				"question": string(question), "options": []string{}, "continuation_context": string(contextText),
+			})
+			if err == nil && response != nil && response.Success {
+				log.Printf("[USER INPUT REQUIRED] Ordinary chat question was redirected to the dedicated in-game window.")
+				return
+			}
+			log.Printf("[TASK BLOCKED] Could not open the dedicated question window: %v", err)
+			return
 		}
 
 		// Normal goals are a single agent turn (which can contain many tool calls).

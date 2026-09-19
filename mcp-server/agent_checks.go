@@ -25,6 +25,21 @@ func isGoalWaiting(text string) bool {
 	return false
 }
 
+func looksLikePlayerQuestion(text string) bool {
+	value := strings.TrimSpace(text)
+	if value == "" || isCompletion(value) || isGoalWaiting(value) || strings.Contains(strings.ToUpper(value), "TASK_BLOCKED:") {
+		return false
+	}
+	lower := strings.ToLower(value)
+	markers := []string{"?", "정해 주세요", "선택해 주세요", "알려 주세요", "답해 주세요", "허용할까요", "어떻게 할까요", "which would you", "please choose", "please decide"}
+	for _, marker := range markers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Crop symbols do not encode collision. Require positive terrain evidence.
 func observedCropWalkable(state *GameState, x, y int) bool {
 	if state == nil {

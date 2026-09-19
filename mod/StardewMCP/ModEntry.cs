@@ -33,6 +33,8 @@ public class ModEntry : Mod
                 if(_agentUi.Busy) Game1.addHUDMessage(new HUDMessage("작업 중입니다. 취소: "+_agentUi.Config.CancelKey));
                 else if(_commandExecutor!=null && _commandExecutor.TryGetPendingGoalQuestion(out string goalId,out GoalQuestion? question) && question!=null)
                     Game1.activeClickableMenu=new GoalQuestionMenu(_agentUi,goalId,question);
+                else if(_commandExecutor!=null && _commandExecutor.TryGetPendingAgentQuestion(out AgentQuestion? agentQuestion) && agentQuestion!=null)
+                    Game1.activeClickableMenu=new AgentQuestionMenu(_agentUi,agentQuestion);
                 else Game1.activeClickableMenu=new AgentMenu(_agentUi);
             }
         };
@@ -124,6 +126,12 @@ public class ModEntry : Mod
             && _commandExecutor.TryGetPendingGoalQuestion(out string goalId,out GoalQuestion? question) && question!=null && !question.Presented) {
             _commandExecutor.MarkGoalQuestionPresented(goalId,question.Id);
             Game1.activeClickableMenu=new GoalQuestionMenu(_agentUi,goalId,question);
+        }
+        if(_agentUi!=null && _commandExecutor!=null && !_agentUi.Busy && Context.IsWorldReady && Game1.activeClickableMenu==null
+            && !Game1.eventUp && Game1.player.CanMove
+            && _commandExecutor.TryGetPendingAgentQuestion(out AgentQuestion? agentQuestion) && agentQuestion!=null && !agentQuestion.Presented) {
+            _commandExecutor.MarkAgentQuestionPresented(agentQuestion.Id);
+            Game1.activeClickableMenu=new AgentQuestionMenu(_agentUi,agentQuestion);
         }
         // Only process when game is running
         if (!Context.IsWorldReady)

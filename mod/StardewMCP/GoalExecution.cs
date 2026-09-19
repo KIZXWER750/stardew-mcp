@@ -100,7 +100,10 @@ public partial class CommandExecutor
         {
             ResetStepForRetry(step, summary);
             SchedulePausedShopStep(step);
-            if (step.NotBeforeTime > Game1.timeOfDay || step.DayIndex > CurrentDayIndex())
+            bool inventoryRecovered = (summary.Contains("INVENTORY_FULL", StringComparison.OrdinalIgnoreCase)
+                || summary.Contains("inventory", StringComparison.OrdinalIgnoreCase) || summary.Contains("인벤토리"))
+                && Game1.player.Items.Any(item => item == null);
+            if (step.NotBeforeTime > Game1.timeOfDay || step.DayIndex > CurrentDayIndex() || inventoryRecovered)
             {
                 goal.Plan.LastDispatchDayIndex = -1;
                 goal.Plan.LastDispatchStepId = "";
@@ -109,7 +112,9 @@ public partial class CommandExecutor
             goal.Plan.BlockedReason = "STEP_PAUSED";
             SaveGoalExecution(goal);
             return FarmReply(command, new { status = "WAITING", goalId = goal.Id, stepId = step.Id, reason = summary,
-                note = "The same persisted step remains pending. Recover safely or let the next day auto-resume it." });
+                retryNow = inventoryRecovered, note = inventoryRecovered
+                    ? "Inventory recovery is verified. The same persisted step is eligible for immediate automatic redispatch."
+                    : "The same persisted step remains pending. Recover safely or let the next day auto-resume it." });
         }
         else if (outcome == "blocked")
         {

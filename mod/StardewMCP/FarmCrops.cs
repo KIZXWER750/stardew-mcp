@@ -62,7 +62,10 @@ public partial class CommandExecutor
             }
         } else {
             if(soil.crop==null || !t.ReadyForHarvest) {FinishFarm(j,"BLOCKED","CROP_NOT_READY");return;}
-            if(!player.Items.Any(i=>i==null)) {FinishFarm(j,"PAUSED","INVENTORY_FULL");return;}
+            Item harvestPreview;
+            try { harvestPreview=ItemRegistry.Create("(O)"+soil.crop.indexOfHarvest.Value); }
+            catch { FinishFarm(j,"BLOCKED","HARVEST_ITEM_UNKNOWN");return; }
+            if(!player.couldInventoryAcceptThisItem(harvestPreview)) {FinishFarm(j,"PAUSED","INVENTORY_FULL");return;}
             bool scythe=t.HarvestMethod=="Scythe";
             if(t.HarvestMethod!="Grab" && !scythe) {FinishFarm(j,"BLOCKED","UNSUPPORTED_HARVEST_METHOD: "+t.HarvestMethod);return;}
             if(scythe) {
