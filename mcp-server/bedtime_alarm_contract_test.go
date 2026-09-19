@@ -37,3 +37,24 @@ func TestBedtimeAlarmPolicyContract(t *testing.T) {
 		t.Fatal("safe-point signal missing")
 	}
 }
+
+func TestMorningGateReceivesNormalInputWhileNewDayIsTrue(t *testing.T) {
+	transitionBytes, err := os.ReadFile("../mod/StardewMCP/SleepTransition.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition := string(transitionBytes)
+	for _, required := range []string{
+		"[MORNING GATE]", "[MORNING INPUT]", "[MORNING VERIFIED]",
+		"Game1.player.hasMoved && timePasses", "_helper.Input.Press(morningButton)",
+		"Game1.options.moveLeftButton", "Game1.options.moveRightButton",
+		"Game1.options.moveDownButton", "Game1.options.moveUpButton",
+	} {
+		if !strings.Contains(transition, required) {
+			t.Fatal("morning input contract missing: " + required)
+		}
+	}
+	if strings.Contains(transition, "Game1.globalFade || Game1.newDay") {
+		t.Fatal("newDay still blocks the input required to release the 6 AM gate")
+	}
+}

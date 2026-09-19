@@ -11,7 +11,7 @@ Get-Command go,gofmt,dotnet -CommandType Application -ErrorAction Stop | Out-Nul
 $copilot = $null
 if (!$BuildOnly -and $env:STARDEW_AI_PROVIDER -eq 'copilot') { $copilot = (Get-Command copilot -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
 $version = (Get-Content "$src\mod\StardewMCP\manifest.json" -Raw | ConvertFrom-Json).Version
-if ($version -ne '1.14.1') { throw "Wrong source version: $version" }
+if ($version -ne '1.14.2') { throw "Wrong source version: $version" }
 
 Push-Location "$src\mcp-server"
 try {
@@ -31,7 +31,7 @@ try {
 } finally { Pop-Location }
 if ($BuildOnly) { Write-Host 'Build and Go tests completed. Nothing installed.'; return }
 
-$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.14.1-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.14.2-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $hadOld = Test-Path $dest
 if ($hadOld) { Copy-Item $dest $backup -Recurse }
 $config = [ordered]@{
@@ -59,5 +59,5 @@ try {
     } else { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
     throw
 }
-Write-Host '1.14.1 installed. Mature-tree selection now requires observed growth evidence and zero eligible targets are blocked. Restart Steam/SMAPI; F6 opens commands, F7 cancels.'
+Write-Host '1.14.2 installed. The 6 AM new-day input gate now receives and verifies normal movement input. Restart Steam/SMAPI; F6 opens commands, F7 cancels.'
 if ($hadOld) { Write-Host "Previous installation: $backup" }

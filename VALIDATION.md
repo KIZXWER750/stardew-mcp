@@ -1,4 +1,6 @@
-# 1.14.1 검증 기록 — 2026-09-19
+# 1.14.2 검증 기록 — 2026-09-19
+
+1.14.2는 다음 날 로드 후 `Game1.newDay`가 참인 6시 입력 게이트에서도 정상 이동 입력을 보내도록 수정합니다. 이전 구현은 이 값이 참이면 입력 전송 전에 반환했기 때문에 사용자의 클릭이 성공으로 오인될 수 있었습니다. 새 구현은 네 방향을 순환하며 입력하고 `hasMoved`와 `shouldTimePass()`를 함께 확인하며, `MORNING GATE/INPUT/VERIFIED` 로그를 남깁니다.
 
 1.14.1 핫픽스는 일반 나무의 `growthStage`, `isFullyGrown`, `canBeChopped`를 AI 문맥에 명시하고, 과일나무를 `find_best_target(tree)` 후보에서 제외하며, 대상이 없는 `remove_wild_trees`를 `NO_ELIGIBLE_TREE`로 차단합니다. 실제 실패 좌표 `(43,13)`처럼 성장 단계 5 미만인 나무를 성목으로 오인하는 회귀 테스트를 추가했습니다.
 

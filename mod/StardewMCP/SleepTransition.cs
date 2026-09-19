@@ -13,6 +13,7 @@ public partial class CommandExecutor
     private string sleepTransitionError="";
     private bool morningReady;
     private int morningInputAttempts;
+    private bool morningGateObserved;
     public void CancelSleepTransition() {sleepAnswered=false;sleepStartDate=null;}
 
     public void ProcessOvernightCommands()
@@ -62,17 +63,39 @@ public partial class CommandExecutor
                 nextSleepInput=DateTime.UtcNow.AddMilliseconds(800);return;
             }
             // SaveGameMenu must finish saving naturally. Unknown menus are never dismissed.
-            if(menu!=null || !Context.IsWorldReady || Game1.eventUp || Game1.globalFade || Game1.newDay) return;
+            if(menu!=null || !Context.IsWorldReady || Game1.eventUp || Game1.globalFade) return;
             if(SleepDate()==sleepStartDate || Game1.timeOfDay<600 || Game1.timeOfDay>=1200
                 || Game1.currentLocation is not FarmHouse) return;
-            if(Game1.player.CanMove && Game1.player.hasMoved && Game1.shouldTimePass()) {morningReady=true;return;}
-            if(morningInputAttempts>=5) {sleepTransitionError="MORNING_INPUT_NOT_VERIFIED";return;}
+            bool timePasses=Game1.shouldTimePass();
+            if(!morningGateObserved) {
+                morningGateObserved=true;
+                _monitor.Log($"[MORNING GATE] date={SleepDate()}, time={Game1.timeOfDay}, newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}",LogLevel.Info);
+            }
+            if(Game1.player.CanMove && Game1.player.hasMoved && timePasses) {
+                morningReady=true;
+                _monitor.Log($"[MORNING VERIFIED] attempts={morningInputAttempts}, newDay={Game1.newDay}, time={Game1.timeOfDay}, tile=({(int)Game1.player.Tile.X},{(int)Game1.player.Tile.Y})",LogLevel.Info);
+                return;
+            }
+            if(morningInputAttempts>=8) {
+                sleepTransitionError=$"MORNING_INPUT_NOT_VERIFIED: newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}";
+                _monitor.Log(sleepTransitionError,LogLevel.Warn);return;
+            }
             // Normal configured movement input releases the game's morning input
-            // gate; do not set CanMove, time, pause flags, or player position.
-            var input=Game1.options.moveLeftButton;
-            _helper.Input.Press(input.Length>0?input[0].ToSButton():SButton.A);
+            // gate. Game1.newDay is expected to still be true at this gate, so it
+            // must not suppress the input. Cycle directions so a wall beside the
+            // bed cannot prevent all real movement. Do not mutate game flags/time.
+            var configured=(morningInputAttempts%4) switch {
+                0=>Game1.options.moveLeftButton,
+                1=>Game1.options.moveRightButton,
+                2=>Game1.options.moveDownButton,
+                _=>Game1.options.moveUpButton
+            };
+            var fallback=(morningInputAttempts%4) switch {0=>SButton.A,1=>SButton.D,2=>SButton.S,_=>SButton.W};
+            var morningButton=configured.Length>0?configured[0].ToSButton():fallback;
+            _monitor.Log($"[MORNING INPUT] attempt={morningInputAttempts+1}, button={morningButton}, newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}",LogLevel.Info);
+            _helper.Input.Press(morningButton);
             morningInputAttempts++;
-            nextSleepInput=DateTime.UtcNow.AddSeconds(1);
+            nextSleepInput=DateTime.UtcNow.AddMilliseconds(500);
         } catch(Exception ex) {
             sleepTransitionError="OVERNIGHT_CONFIRM_FAILED: "+ex.GetBaseException().Message;
             _monitor.Log(sleepTransitionError,LogLevel.Warn);
