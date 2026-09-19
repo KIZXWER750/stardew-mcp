@@ -336,6 +336,7 @@ public partial class CommandExecutor
         }
         var selected=candidates.OrderByDescending(p=>p.AccessStatus=="READY").ThenByDescending(p=>p.AccessibleTargets)
             .ThenBy(p=>p.RemovableObstacles).ThenBy(p=>p.ExistingHoeDirt).ThenBy(p=>p.DistanceFromAnchor).Take(limit).ToList();
+        RememberGoalPlotCandidates(selected);
         return FarmReply(c,new { location="Farm",anchor=new { x=anchorX,y=anchorY },direction,width,height,searchRadius=radius,
             evaluatedRectangles=evaluated,candidates=selected,unexplored=false });
     }

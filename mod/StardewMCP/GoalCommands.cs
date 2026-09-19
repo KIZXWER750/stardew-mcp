@@ -26,7 +26,7 @@ public partial class CommandExecutor
         return FarmReply(command, new
         {
             status = "SAVED", goal, currentMoney = Game1.player.Money, dayIndex = (int)Game1.stats.DaysPlayed,
-            note = "The goal is persistent. Phase 3 can select and save a dated plan but does not execute plan steps. Completion is verified from live money."
+            note = "The goal is persistent. Phase 4 can select, save and execute authorized supported plan steps. Completion is verified from live money."
         });
     }
 

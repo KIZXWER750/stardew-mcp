@@ -97,5 +97,14 @@ Check(GoalPlanPolicy.Select(new[]{quick,profitable},"fastest",1000)?.Id=="sell",
 Check(GoalPlanPolicy.Select(new[]{quick,profitable},"highest_profit",1000)?.Id=="crop","Highest-profit strategy must prefer net profit");
 Check(GoalPlanPolicy.Select(new[]{quick,profitable},"balanced",1000)?.Id=="crop","Balanced strategy must prefer a candidate covering the remaining target");
 var migratedGoalDocument=GoalSchema.Normalize(new GoalDocument{SchemaVersion=1,Goals=new(){new LongTermGoal{Id="planned",Summary="Plan",Money=new MoneyGoalSpec{TargetValue=100}}}});
-Check(migratedGoalDocument.SchemaVersion==2 && migratedGoalDocument.Goals[0].Plan.Status==GoalPlanStatuses.None,"Goal schema v1 must migrate to persistent plan schema v2");
-Console.WriteLine("45 policy, memory, knowledge, goal and economy regression checks passed.");
+Check(migratedGoalDocument.SchemaVersion==3 && migratedGoalDocument.Goals[0].Plan.Status==GoalPlanStatuses.None,"Goal schema v1 must migrate to execution plan schema v3");
+Check(GoalPlanPolicy.RectangleForTiles(16)==(4,4),"Sixteen planned tiles must bind to a 4x4 rectangle");
+Check(GoalPlanPolicy.RectangleForTiles(15).Width*GoalPlanPolicy.RectangleForTiles(15).Height==15,"Planned plot rectangle must preserve the requested tile count when factorable");
+var executingGoal=new LongTermGoal{Id="executing",Summary="Execute",Money=new MoneyGoalSpec{TargetValue=5000},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Waiting,Revision=3,
+    Plot=new GoalPlanPlot{X=10,Y=12,Width=4,Height=4},Steps=new(){new GoalPlanStep{Id="step-01",Status=GoalPlanStepStatuses.InProgress,LeaseId="lease",AttemptCount=1}}}};
+var restoredExecution=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{SchemaVersion=3,Goals=new(){executingGoal}}))!).Goals.Single();
+Check(restoredExecution.Plan.Status==GoalPlanStatuses.Waiting && restoredExecution.Plan.Plot?.X==10,"Persistent execution must retain waiting state and fixed plot");
+Check(restoredExecution.Plan.Steps[0].LeaseId=="lease" && restoredExecution.Plan.Steps[0].AttemptCount==1,"Persistent execution must retain an in-progress lease without replaying it");
+var migratedPlan=GoalSchema.Normalize(new GoalDocument{SchemaVersion=2,Goals=new(){new LongTermGoal{Id="old-plan",Summary="Old",Money=new MoneyGoalSpec{TargetValue=100},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Ready}}}}).Goals.Single();
+Check(migratedPlan.Plan.Status==GoalPlanStatuses.Stale && migratedPlan.Plan.BlockedReason=="MIGRATED_REPLAN_REQUIRED","Pre-execution plans must require one refresh after schema v3 migration");
+Console.WriteLine("50 policy, memory, knowledge, goal and economy regression checks passed.");

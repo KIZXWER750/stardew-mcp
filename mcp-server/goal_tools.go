@@ -11,7 +11,7 @@ LONG-TERM GOALS:
 Use create_long_term_goal only for a broad outcome the user intends to persist across days or game restarts. The current goal schema supports money_target only.
 Interpret "reach/save N gold" as metric=current_balance. Use metric=balance_increase only when the user explicitly asks to gain N additional net gold from the starting balance.
 Creating a goal does not authorize unlisted actions. Record only actions clearly within the user's request in authorized_actions; an empty list grants no gameplay action.
-Goals persist and verify progress. Phase 3 can select and persist a dated plan through the economic tools but does not execute plan steps. Never claim that creating a goal started farming or earning money.
+Goals persist and verify progress. Phase 4 can execute an authorized dated plan through leased, verified steps. Creating a goal alone does not start farming or earning money.
 Use verify_long_term_goal to test completion from live game money. Never mark a money goal complete through text or a status tool.
 Pause, resume or cancel a goal only when the user requested that state change; cancellation is terminal.
 If essential information cannot be safely inferred, create a draft/active goal with the known scope and call request_goal_input once with one concise question and at most six options. The game will show a dedicated response window. After requesting input, stop this run and do not guess.

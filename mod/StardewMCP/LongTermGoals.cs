@@ -65,6 +65,17 @@ public partial class CommandExecutor
             throw new InvalidOperationException($"Goal status cannot transition from {goal.Status} to {status}.");
         goal.Status = status;
         goal.BlockedReason = status == GoalStatuses.Blocked ? reason.Trim() : "";
+        if (status == GoalStatuses.Paused && goal.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting)
+            goal.Plan.Status = GoalPlanStatuses.Paused;
+        else if (status == GoalStatuses.Active && goal.Plan.Status == GoalPlanStatuses.Paused)
+            goal.Plan.Status = GoalPlanStatuses.Executing;
+        else if (status == GoalStatuses.Active && goal.Plan.Status == GoalPlanStatuses.Blocked)
+        {
+            GoalPlanStep? blockedStep = goal.Plan.Steps.FirstOrDefault(p => p.Status == GoalPlanStepStatuses.Blocked);
+            if (blockedStep != null) { blockedStep.Status = GoalPlanStepStatuses.Pending; blockedStep.BlockedReason = ""; blockedStep.LeaseId = ""; }
+            goal.Plan.Status = GoalPlanStatuses.Executing;
+            goal.Plan.BlockedReason = "";
+        }
         if (status != GoalStatuses.AwaitingUser && goal.PendingQuestion?.Status == "pending")
         {
             goal.PendingQuestion.Status = "dismissed";
@@ -151,6 +162,7 @@ public partial class CommandExecutor
             if (next.SuccessConditionMet)
             {
                 goal.Status = GoalStatuses.Completed;
+                if (goal.Plan.Status != GoalPlanStatuses.None) goal.Plan.Status = GoalPlanStatuses.Completed;
                 goal.PendingQuestion = null;
                 goal.BlockedReason = "";
                 goalChanged = true;
@@ -177,7 +189,10 @@ public partial class CommandExecutor
         string state = goal.Status == GoalStatuses.AwaitingUser ? "응답 대기" : goal.Status;
         string plan = goal.Plan.Status == GoalPlanStatuses.Ready
             ? $"\n계획 · {goal.Plan.StrategyTitle}"
-            : goal.Plan.Status == GoalPlanStatuses.Stale ? "\n계획 · 재계획 필요" : "";
+            : goal.Plan.Status == GoalPlanStatuses.Stale ? "\n계획 · 재계획 필요"
+            : goal.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting
+                ? $"\n실행 · {goal.Plan.Steps.Count(p => p.Status is GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped)}/{goal.Plan.Steps.Count} 단계"
+                : goal.Plan.Status == GoalPlanStatuses.Paused ? "\n실행 · 일시정지" : "";
         return $"장기 목표 · {state}\n{goal.Summary}\n{goal.Progress.CurrentValue:N0} / {goal.Progress.TargetValue:N0}g ({goal.Progress.Percent:0.#}%){plan}";
     }
 
@@ -189,6 +204,7 @@ public partial class CommandExecutor
         {
             goal.Status = GoalStatuses.Paused;
             goal.BlockedReason = "USER_CANCELLED_AUTOMATION";
+            if (goal.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting) goal.Plan.Status = GoalPlanStatuses.Paused;
             if (goal.PendingQuestion?.Status == "pending")
             {
                 goal.PendingQuestion.Status = "dismissed";

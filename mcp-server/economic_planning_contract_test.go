@@ -12,7 +12,7 @@ func TestPhaseThreePlanningContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(tools)
-	for _, required := range []string{"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan", "never executes a plan step", "request_goal_input", "Never treat a generated plan"} {
+	for _, required := range []string{"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan", "Only start_goal_plan_execution", "request_goal_input", "Never treat a generated plan"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("missing phase-three planning contract %q", required)
 		}
@@ -21,7 +21,7 @@ func TestPhaseThreePlanningContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"MISSING_ACTION_AUTHORIZATION", "StateFingerprint", "GoalActionAuthorized", "RefreshGoalPlanFreshness", "Phase 3 does not execute steps"} {
+	for _, required := range []string{"MISSING_ACTION_AUTHORIZATION", "StateFingerprint", "GoalActionAuthorized", "RefreshGoalPlanFreshness", "start_goal_plan_execution"} {
 		if !strings.Contains(string(planner), required) {
 			t.Fatalf("missing persistent planner contract %q", required)
 		}

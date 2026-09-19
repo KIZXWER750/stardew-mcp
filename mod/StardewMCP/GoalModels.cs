@@ -96,6 +96,11 @@ public sealed class GoalExecutionPlan
     public string GeneratedAtUtc { get; set; } = "";
     public string UpdatedAtUtc { get; set; } = "";
     public string BlockedReason { get; set; } = "";
+    public string ExecutionStartedAtUtc { get; set; } = "";
+    public string LastExecutionAtUtc { get; set; } = "";
+    public int LastDispatchDayIndex { get; set; } = -1;
+    public string LastDispatchStepId { get; set; } = "";
+    public GoalPlanPlot? Plot { get; set; }
     public List<string> MissingAuthorizations { get; set; } = new();
     public List<string> Assumptions { get; set; } = new();
     public List<GoalPlanStep> Steps { get; set; } = new();
@@ -114,6 +119,30 @@ public sealed class GoalPlanStep
     public bool RequiresLivePreflight { get; set; } = true;
     public List<string> DependsOn { get; set; } = new();
     public Dictionary<string, string> Inputs { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public int AttemptCount { get; set; }
+    public string LeaseId { get; set; } = "";
+    public string ClaimedAtUtc { get; set; } = "";
+    public string CompletedAtUtc { get; set; } = "";
+    public string ResultSummary { get; set; } = "";
+    public string BlockedReason { get; set; } = "";
+    public int BeforeMoney { get; set; }
+    public int BeforeSeedQuantity { get; set; }
+    public int BeforeHarvestQuantity { get; set; }
+    public int BeforePreparedTiles { get; set; }
+    public int BeforeCropTiles { get; set; }
+    public int BeforeReadyCropTiles { get; set; }
+    public int BeforeDryCropTiles { get; set; }
+    public int BeforeSellableCropQuantity { get; set; }
+}
+
+public sealed class GoalPlanPlot
+{
+    public string Location { get; set; } = "Farm";
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public string BoundAtUtc { get; set; } = "";
 }
 
 public sealed class GoalPlanCandidate
@@ -137,6 +166,19 @@ public static class GoalPlanStatuses
     public const string Ready = "ready";
     public const string Blocked = "blocked";
     public const string Stale = "stale";
+    public const string Executing = "executing";
+    public const string Waiting = "waiting";
+    public const string Paused = "paused";
+    public const string Completed = "completed";
+}
+
+public static class GoalPlanStepStatuses
+{
+    public const string Pending = "pending";
+    public const string InProgress = "in_progress";
+    public const string Completed = "completed";
+    public const string Skipped = "skipped";
+    public const string Blocked = "blocked";
 }
 
 public static class GoalPlanPolicy
@@ -161,6 +203,14 @@ public static class GoalPlanPolicy
     private static int ConfidenceRank(string value) => value.Equals("high", StringComparison.OrdinalIgnoreCase) ? 0
         : value.Equals("medium", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
     private static double Efficiency(GoalPlanCandidate value) => value.ExpectedProfit / (double)Math.Max(1, value.WorkUnits);
+
+    public static (int Width, int Height) RectangleForTiles(int tiles)
+    {
+        tiles = Math.Clamp(tiles, 1, 64);
+        int width = Math.Min(8, (int)Math.Ceiling(Math.Sqrt(tiles)));
+        while (width > 1 && tiles % width != 0) width--;
+        return (width, (int)Math.Ceiling(tiles / (double)width));
+    }
 }
 
 public static class GoalKinds
@@ -197,17 +247,26 @@ public static class GoalStatuses
 
 public static class GoalSchema
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     public static GoalDocument Normalize(GoalDocument? document)
     {
         document ??= new();
+        int sourceVersion = document.SchemaVersion;
         if (document.SchemaVersion < 0 || document.SchemaVersion > CurrentVersion)
             throw new InvalidOperationException($"Unsupported goal schema version {document.SchemaVersion}.");
-        if (document.SchemaVersion < 2) document.SchemaVersion = 2;
+        if (document.SchemaVersion < 3) document.SchemaVersion = 3;
         document.Goals ??= new();
         document.Goals = document.Goals.Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
             .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase).Select(p => Normalize(p.Last())).ToList();
+        if (sourceVersion is 1 or 2)
+            foreach (LongTermGoal goal in document.Goals.Where(p => p.Plan.Status is not (GoalPlanStatuses.None or GoalPlanStatuses.Completed)))
+            {
+                goal.Plan.Status = GoalPlanStatuses.Stale;
+                goal.Plan.BlockedReason = "MIGRATED_REPLAN_REQUIRED";
+                foreach (GoalPlanStep step in goal.Plan.Steps.Where(p => p.Status == GoalPlanStepStatuses.InProgress))
+                { step.Status = GoalPlanStepStatuses.Pending; step.LeaseId = ""; }
+            }
         return document;
     }
 
@@ -234,6 +293,7 @@ public static class GoalSchema
         {
             step.DependsOn ??= new();
             step.Inputs ??= new(StringComparer.OrdinalIgnoreCase);
+            step.Status = NormalizePlanStepStatus(step.Status);
         }
         goal.QuestionHistory ??= new();
         if (goal.PendingQuestion != null)
@@ -263,8 +323,18 @@ public static class GoalSchema
     public static string NormalizePlanStatus(string? status)
     {
         string value = string.IsNullOrWhiteSpace(status) ? GoalPlanStatuses.None : status.Trim().ToLowerInvariant();
-        if (value is not (GoalPlanStatuses.None or GoalPlanStatuses.Ready or GoalPlanStatuses.Blocked or GoalPlanStatuses.Stale))
+        if (value is not (GoalPlanStatuses.None or GoalPlanStatuses.Ready or GoalPlanStatuses.Blocked or GoalPlanStatuses.Stale
+            or GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting or GoalPlanStatuses.Paused or GoalPlanStatuses.Completed))
             throw new InvalidOperationException($"Unsupported goal plan status '{status}'.");
+        return value;
+    }
+
+    public static string NormalizePlanStepStatus(string? status)
+    {
+        string value = string.IsNullOrWhiteSpace(status) ? GoalPlanStepStatuses.Pending : status.Trim().ToLowerInvariant();
+        if (value is not (GoalPlanStepStatuses.Pending or GoalPlanStepStatuses.InProgress or GoalPlanStepStatuses.Completed
+            or GoalPlanStepStatuses.Skipped or GoalPlanStepStatuses.Blocked))
+            throw new InvalidOperationException($"Unsupported goal plan step status '{status}'.");
         return value;
     }
 

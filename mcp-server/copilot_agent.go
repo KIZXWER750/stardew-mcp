@@ -992,6 +992,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	memoryTools := a.defineMemoryTools()
 	goalTools := a.defineGoalTools()
 	economicTools := a.defineEconomicTools()
+	goalExecutionTools := a.defineGoalExecutionTools()
 	// Create session with tools (using embedded knowledge)
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
@@ -999,6 +1000,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization",
 			"inspect_capability_registry", "assess_economic_state", "analyze_crop_profit_options", "find_profit_opportunities",
 			"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan",
+			"start_goal_plan_execution", "continue_goal_plan_execution", "bind_goal_plan_plot", "report_goal_plan_step",
 			"search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route",
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
@@ -1010,7 +1012,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Model: "gpt-4.1",
 		SystemMessage: &copilot.SystemMessageConfig{
-			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + goalToolRules + economicToolRules,
+			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + goalToolRules + economicToolRules + goalExecutionRules,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
@@ -1041,6 +1043,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	config.Tools = append(config.Tools, lifeTools...)
 	config.Tools = append(config.Tools, memoryTools...)
 	config.Tools = append(config.Tools, goalTools...)
+	config.Tools = append(config.Tools, goalExecutionTools...)
 	return config
 }
 

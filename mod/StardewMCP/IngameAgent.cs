@@ -287,8 +287,12 @@ public sealed class IngameAgent
         if(!Busy && Ready && Context.IsWorldReady && Game1.activeClickableMenu==null
             && !Game1.eventUp && !Game1.player.UsingTool && Game1.player.CanMove
             && string.IsNullOrWhiteSpace(pendingBedtimeGoal)) {
-            string resume=executor.GetPendingTreeGoal();
-            if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+            string planResume=executor.GetPendingGoalPlanExecutionPrompt();
+            if(planResume!="" && StartGoal(planResume,false,true)) executor.MarkGoalPlanExecutionDispatched();
+            else {
+                string resume=executor.GetPendingTreeGoal();
+                if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+            }
         }
     }
     public void Shutdown()

@@ -15,6 +15,8 @@ public partial class CommandExecutor
         RefreshLongTermGoalProgress();
         LongTermGoal goal = FindGoal(ShopText(command, "goal_id"));
         if (goal.Status != GoalStatuses.Active) throw new InvalidOperationException("Only an active goal can receive an execution plan.");
+        if (goal.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting)
+            throw new InvalidOperationException("The current plan is executing. Finish, pause or block its leased step before replanning.");
         int requestedTiles = command.Params.ContainsKey("max_tiles") ? ShopInt(command, "max_tiles") : 0;
         int maxTiles = requestedTiles <= 0
             ? refresh && goal.Plan.MaxTiles > 0 ? Math.Clamp(goal.Plan.MaxTiles, 1, 64) : 16
@@ -57,7 +59,7 @@ public partial class CommandExecutor
         FlushLongTermMemory();
         return FarmReply(command, new { status = "PLANNED", goalId = goal.Id, plan,
             consideredCandidates = RankForResponse(deadlineEligible, goal).Take(8).ToList(),
-            note = "The plan is persistent and read-only. Phase 3 does not execute steps. Live preflight and verified results are required before every future action." });
+            note = "The plan is persistent and ready for Phase 4 execution. Call start_goal_plan_execution; every mutating step still requires live preflight and verified completion." });
     }
 
     private CommandResponse InspectGoalPlanCommand(GameCommand command)
@@ -66,8 +68,9 @@ public partial class CommandExecutor
         LongTermGoal goal = FindGoal(ShopText(command, "goal_id"));
         int requestedTiles = command.Params.ContainsKey("max_tiles") ? ShopInt(command, "max_tiles") : 0;
         int maxTiles = requestedTiles <= 0 ? Math.Clamp(goal.Plan.MaxTiles, 1, 64) : Math.Clamp(requestedTiles, 1, 64);
-        bool stale = goal.Plan.Status != GoalPlanStatuses.None && goal.Plan.StateFingerprint != GoalPlanFingerprint(goal, maxTiles);
-        string effectiveStatus = stale && goal.Plan.Status == GoalPlanStatuses.Ready ? GoalPlanStatuses.Stale : goal.Plan.Status;
+        bool stale = goal.Plan.Status == GoalPlanStatuses.Stale
+            || goal.Plan.Status == GoalPlanStatuses.Ready && goal.Plan.StateFingerprint != GoalPlanFingerprint(goal, maxTiles);
+        string effectiveStatus = stale ? GoalPlanStatuses.Stale : goal.Plan.Status;
         return FarmReply(command, new { status = "OBSERVED", goalId = goal.Id, plan = goal.Plan, effectiveStatus, stale,
             reason = stale ? "Money, day, season, relevant inventory or goal constraints changed after planning." : "",
             note = stale ? "Call refresh_goal_plan before relying on this plan." : "Inspection does not execute any step." });
@@ -151,15 +154,16 @@ public partial class CommandExecutor
         else
         {
             int tiles = ReadMetaInt(selected, "tiles"), paidSeeds = ReadMetaInt(selected, "paidSeeds"), growth = ReadMetaInt(selected, "growthDays");
-            string seedId = selected.Metadata["seedItemId"];
-            Add(startOffset, "analyze_farm_work", $"{tiles}칸 농사 후보와 도구·에너지·접근 가능 여부 재검사", inputs: new(){{"seedItemId",seedId},{"tiles",tiles.ToString()}});
-            if (paidSeeds > 0) Add(startOffset, "buy_shop_item", $"예비금 {goal.Constraints.ReserveMoney}g를 보존하며 {seedId} 씨앗 {paidSeeds}개까지 구매", inputs: new(){{"seedItemId",seedId},{"quantity",paidSeeds.ToString()}});
-            Add(startOffset, "prepare_plot", "관측으로 선택한 명시적 영역만 정리·경작");
+            string seedId = selected.Metadata["seedItemId"], harvestId = selected.Metadata["harvestItemId"];
+            (int plotWidth, int plotHeight) = GoalPlanPolicy.RectangleForTiles(tiles);
+            Add(startOffset, "select_farm_plot", $"{tiles}칸 농사 후보를 관측해 한 영역을 계획에 고정", inputs: new(){{"seedItemId",seedId},{"harvestItemId",harvestId},{"tiles",tiles.ToString()},{"width",plotWidth.ToString()},{"height",plotHeight.ToString()}});
+            if (paidSeeds > 0) Add(startOffset, "buy_shop_item", $"예비금 {goal.Constraints.ReserveMoney}g를 보존하며 {seedId} 씨앗 {paidSeeds}개까지 구매", inputs: new(){{"seedItemId",seedId},{"quantity",paidSeeds.ToString()},{"maxTotalCost",(ReadMetaInt(selected,"seedPrice")*paidSeeds).ToString()},{"reserveMoney",goal.Constraints.ReserveMoney.ToString()}});
+            Add(startOffset, "prepare_plot", "계획에 고정한 명시적 영역만 정리·경작");
             Add(startOffset, "plant_plot", $"{seedId} 씨앗을 빈 경작지에 파종", inputs: new(){{"seedItemId",seedId},{"tiles",tiles.ToString()}});
             Add(startOffset, "water_plot", "파종한 작물 영역의 마른 칸만 물주기");
             for (int day = 1; day < growth; day++) Add(startOffset + day, "water_plot", "살아 있는 미수확 작물만 물주기", conditional: true);
-            Add(startOffset + growth, "harvest_plot", "성숙 판정된 작물만 수확하고 수량 변화 검증");
-            Add(startOffset + growth, "sell_crop_stack", "수확물을 실제 상점에서 견적 후 판매하고 골드 증가 검증");
+            Add(startOffset + growth, "harvest_plot", "성숙 판정된 작물만 수확하고 수량 변화 검증", inputs: new(){{"harvestItemId",harvestId}});
+            Add(startOffset + growth, "sell_crop_stack", "수확물을 실제 상점에서 견적 후 판매하고 골드 증가 검증", inputs: new(){{"harvestItemId",harvestId}});
             Add(startOffset + growth, "verify_long_term_goal", "실제 소지금으로 목표 진행률 재검증");
         }
         return plan;

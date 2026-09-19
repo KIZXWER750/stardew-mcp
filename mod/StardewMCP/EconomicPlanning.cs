@@ -122,21 +122,23 @@ public partial class CommandExecutor
     {
         string[] tools = { "Hoe", "Pickaxe", "Axe", "Watering Can", "Scythe" };
         var toolState = tools.Select(p => new { name = p, available = FarmToolSlot(p) >= 0 }).ToList();
-        return FarmReply(command, new { status = "OBSERVED", version = "1.18.0", toolState,
+        return FarmReply(command, new { status = "OBSERVED", version = "1.19.0", toolState,
             capabilities = new object[] {
                 new {id="goal.money.persistence",supported=true,mode="verified_state"},
                 new {id="economy.observe",supported=true,mode="read_only"},
                 new {id="economy.crop_profit",supported=true,mode="read_only_installed_game_data"},
                 new {id="economy.profit_opportunities",supported=true,mode="read_only_candidates"},
-                new {id="goal.strategy_selection",supported=true,mode="persistent_read_only_plan"},
-                new {id="goal.daily_plan",supported=true,mode="persistent_read_only_plan"},
+                new {id="goal.strategy_selection",supported=true,mode="persistent_plan"},
+                new {id="goal.daily_plan",supported=true,mode="persistent_plan"},
                 new {id="goal.plan_revalidation",supported=true,mode="state_fingerprint"},
+                new {id="goal.plan_execution",supported=true,mode="leased_verified_steps"},
+                new {id="goal.multi_day_resume",supported=true,mode="automatic_due_step_dispatch"},
                 new {id="farm.restore_tilled_soil",supported=true,mode="verified_gameplay_input"},
                 new {id="farm.crop_cycle",supported=true,mode="explicit_bounded_actions"},
                 new {id="profit.shipping_bin",supported=false,mode="unavailable"},
                 new {id="profit.fishing",supported=false,mode="unavailable"},
                 new {id="profit.mining",supported=false,mode="unavailable"},
-                new {id="goal.autonomous_strategy_execution",supported=false,mode="future_phase"}
+                new {id="goal.autonomous_strategy_execution",supported=true,mode="authorized_supported_crop_cycles"}
             }, note = "Support means a registered verified function exists; current inventory, tools, season, time, authorization and routes may still block a specific action." });
     }
 
