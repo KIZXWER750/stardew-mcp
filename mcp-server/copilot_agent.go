@@ -1002,6 +1002,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	})
 	lifeTools := a.defineLifeTools()
 	memoryTools := a.defineMemoryTools()
+	craftingTools := a.defineCraftingTools()
 	goalTools := a.defineGoalTools()
 	economicTools := a.defineEconomicTools()
 	goalExecutionTools := a.defineGoalExecutionTools()
@@ -1014,6 +1015,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan",
 			"start_goal_plan_execution", "continue_goal_plan_execution", "bind_goal_plan_plot", "report_goal_plan_step",
 			"search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route",
+			"inspect_crafting_recipe", "craft_item",
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "free_inventory_slot_at_pierre", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
@@ -1024,7 +1026,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Model: "gpt-4.1",
 		SystemMessage: &copilot.SystemMessageConfig{
-			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + goalToolRules + economicToolRules + goalExecutionRules,
+			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + craftingToolRules + goalToolRules + economicToolRules + goalExecutionRules,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, freeSlotTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
@@ -1054,6 +1056,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	}
 	config.Tools = append(config.Tools, lifeTools...)
 	config.Tools = append(config.Tools, memoryTools...)
+	config.Tools = append(config.Tools, craftingTools...)
 	config.Tools = append(config.Tools, goalTools...)
 	config.Tools = append(config.Tools, goalExecutionTools...)
 	return config
@@ -1286,6 +1289,9 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 		a.farmContext = requestCtx
 		a.observationCount = 0
 		a.requestMu.Unlock()
+		if a.aiConfig.Provider != "openai" {
+			log.Printf("[AI API CALL] provider=%s model=%s logical_turn=true", a.aiConfig.Provider, a.aiConfig.Model)
+		}
 		response, err := a.session.SendAndWait(requestCtx, copilot.MessageOptions{
 			Prompt: prompt,
 		})

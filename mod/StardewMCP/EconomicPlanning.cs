@@ -138,7 +138,7 @@ public partial class CommandExecutor
     {
         string[] tools = { "Hoe", "Pickaxe", "Axe", "Watering Can", "Scythe" };
         var toolState = tools.Select(p => new { name = p, available = FarmToolSlot(p) >= 0 }).ToList();
-        return FarmReply(command, new { status = "OBSERVED", version = "1.20.1", toolState,
+        return FarmReply(command, new { status = "OBSERVED", version = "1.21.0", toolState,
             capabilities = new object[] {
                 new {id="goal.money.persistence",supported=true,mode="verified_state"},
                 new {id="economy.observe",supported=true,mode="read_only"},
@@ -152,6 +152,9 @@ public partial class CommandExecutor
                 new {id="farm.restore_tilled_soil",supported=true,mode="verified_gameplay_input"},
                 new {id="farm.crop_cycle",supported=true,mode="explicit_bounded_actions"},
                 new {id="farm.existing_crop_cycle",supported=true,mode="water_harvest_and_sell_existing_only"},
+                new {id="crafting.recipe_inspection",supported=true,mode="installed_game_live_inventory"},
+                new {id="crafting.verified_execution",supported=true,mode="observed_idempotent_inventory_delta"},
+                new {id="crafting.material_procurement",supported=true,mode="knowledge_guided_existing_normal_tools"},
                 new {id="profit.shipping_bin",supported=false,mode="unavailable"},
                 new {id="profit.fishing",supported=false,mode="unavailable"},
                 new {id="profit.mining",supported=false,mode="unavailable"},

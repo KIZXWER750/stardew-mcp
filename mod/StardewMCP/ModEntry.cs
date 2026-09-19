@@ -26,6 +26,7 @@ public class ModEntry : Mod
         _agentUi = new IngameAgent(helper,Monitor,_commandExecutor);
         helper.Events.Input.ButtonPressed += (_,e) => {
             if(_agentUi==null) return;
+            if(e.Button==_agentUi.Config.ResetAiCallCountKey) {Helper.Input.Suppress(e.Button);_agentUi.ResetAiCallCount();return;}
             if(e.Button==_agentUi.Config.CancelKey) {Helper.Input.Suppress(e.Button);_agentUi.Cancel();}
             if(!Context.IsWorldReady) return;
             if(e.Button==_agentUi.Config.OpenKey && Game1.activeClickableMenu==null) {
@@ -40,6 +41,12 @@ public class ModEntry : Mod
         };
         helper.Events.Display.RenderedHud += (_,e) => {
             if(!Context.IsWorldReady || _agentUi==null) return;
+            string callText=$"AI 호출: {_agentUi.AiCallCount}  ·  {_agentUi.Config.ResetAiCallCountKey} 초기화";
+            var callSize=Game1.smallFont.MeasureString(callText);
+            int callWidth=(int)callSize.X+24;
+            var callPanel=new Microsoft.Xna.Framework.Rectangle(Game1.uiViewport.Width-callWidth-12,12,callWidth,(int)callSize.Y+16);
+            e.SpriteBatch.Draw(Game1.fadeToBlackRect,callPanel,Microsoft.Xna.Framework.Color.Black*0.68f);
+            e.SpriteBatch.DrawString(Game1.smallFont,callText,new Microsoft.Xna.Framework.Vector2(callPanel.X+12,callPanel.Y+8),Microsoft.Xna.Framework.Color.White);
             if(_agentUi.Busy) {
                 string text=_agentUi.Status;if(text.Length>120) text=text.Substring(0,120)+"…";
                 string display=Game1.parseText("AI 작업\n"+text+"\n취소: "+_agentUi.Config.CancelKey,Game1.smallFont,580);

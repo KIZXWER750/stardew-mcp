@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "importerVersion": "1.0.0+curated-material-methods",
+  "category": "materials",
+  "language": "en",
+  "retrievedAtUtc": "2026-09-19T14:20:20.606472Z",
+  "targetGameVersion": "current-wiki; validate against installed game data and live state",
+  "license": "CC BY-NC-SA 3.0",
+  "entries": [
+    {
+      "subject": "Wood", "subjectId": "388", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "clear fallen branches", "tool": "Axe", "normalTool": "clear_area or clear_target", "requirements": ["reachable branch"]},
+        {"rank": 2, "method": "chop wild trees and their stumps", "tool": "Axe", "normalTool": "remove_wild_trees", "requirements": ["authorized tree removal", "sufficient energy"]},
+        {"rank": 3, "method": "buy from Robin", "requirements": ["Carpenter's Shop open", "sufficient gold"], "tradeoff": "spends gold"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Wood", "pageUrl": "https://stardewvalleywiki.com/Wood", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Fiber", "subjectId": "771", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "cut weeds", "tool": "Scythe", "normalTool": "clear_area or clear_target", "requirements": ["reachable unprotected weeds"]},
+        {"rank": 2, "method": "cut weeds in the Mines", "tool": "Scythe", "requirements": ["mine access"], "tradeoff": "travel and possible combat"},
+        {"rank": 3, "method": "grow Fiber Seeds", "requirements": ["Fiber Seeds recipe and time"], "tradeoff": "not immediate"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Fiber", "pageUrl": "https://stardewvalleywiki.com/Fiber", "pageId": 2960, "pageRevision": 190950, "revisionTimestamp": "2026-01-26T21:40:43Z", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Coal", "subjectId": "382", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "break mine rocks or coal nodes", "tool": "Pickaxe", "requirements": ["mine access"], "tradeoff": "drop is not guaranteed from ordinary rocks"},
+        {"rank": 2, "method": "process 10 Wood in a Charcoal Kiln", "requirements": ["Charcoal Kiln", "10 Wood", "processing time"], "tradeoff": "consumes wood"},
+        {"rank": 3, "method": "buy from Clint", "requirements": ["Blacksmith open", "sufficient gold"], "tradeoff": "spends gold"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Coal", "pageUrl": "https://stardewvalleywiki.com/Coal", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Stone", "subjectId": "390", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "break reachable farm rocks", "tool": "Pickaxe", "normalTool": "clear_area or clear_target", "requirements": ["unprotected rock"]},
+        {"rank": 2, "method": "break rocks in the Mines", "tool": "Pickaxe", "requirements": ["mine access"], "tradeoff": "travel and energy"},
+        {"rank": 3, "method": "buy from Robin", "requirements": ["Carpenter's Shop open", "sufficient gold"], "tradeoff": "spends gold"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Stone", "pageUrl": "https://stardewvalleywiki.com/Stone", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Sap", "subjectId": "92", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "chop wild trees", "tool": "Axe", "normalTool": "remove_wild_trees", "requirements": ["authorized tree removal"]},
+        {"rank": 2, "method": "defeat Slimes", "requirements": ["combat access"], "tradeoff": "combat risk"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Sap", "pageUrl": "https://stardewvalleywiki.com/Sap", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Hardwood", "subjectId": "709", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "chop Large Stumps", "tool": "Copper Axe or better", "requirements": ["reachable Large Stump"]},
+        {"rank": 2, "method": "chop Large Logs", "tool": "Steel Axe or better", "requirements": ["reachable Large Log"]},
+        {"rank": 3, "method": "chop Mahogany Trees", "tool": "Axe", "requirements": ["authorized tree removal"]}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Hardwood", "pageUrl": "https://stardewvalleywiki.com/Hardwood", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Copper Bar", "subjectId": "334", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "smelt 5 Copper Ore with 1 Coal", "machine": "Furnace", "requirements": ["5 Copper Ore", "1 Coal", "Furnace"]},
+        {"rank": 2, "method": "buy from Clint", "requirements": ["Blacksmith open", "sufficient gold"], "tradeoff": "spends gold"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Copper Bar", "pageUrl": "https://stardewvalleywiki.com/Copper_Bar", "license": "CC BY-NC-SA 3.0"}
+    },
+    {
+      "subject": "Iron Bar", "subjectId": "335", "category": "material", "authorityRank": 30, "verificationStatus": "wiki_only",
+      "facts": {"acquisitionMethods": [
+        {"rank": 1, "method": "smelt 5 Iron Ore with 1 Coal", "machine": "Furnace", "requirements": ["5 Iron Ore", "1 Coal", "Furnace"]},
+        {"rank": 2, "method": "buy from Clint", "requirements": ["Blacksmith open", "sufficient gold"], "tradeoff": "spends gold"}
+      ]},
+      "source": {"type": "stardew_valley_wiki", "pageTitle": "Iron Bar", "pageUrl": "https://stardewvalleywiki.com/Iron_Bar", "license": "CC BY-NC-SA 3.0"}
+    }
+  ]
+}

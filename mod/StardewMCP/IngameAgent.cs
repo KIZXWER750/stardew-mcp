@@ -16,6 +16,7 @@ public class AgentUiConfig
     public string CopilotCliPath {get;set;}="";
     public SButton OpenKey {get;set;}=SButton.F6;
     public SButton CancelKey {get;set;}=SButton.F7;
+    public SButton ResetAiCallCountKey {get;set;}=SButton.F8;
     public bool EnableAutomaticBedtimeAlarm {get;set;}=true;
     public int FirstBedtimeAlarm {get;set;}=2200;
     public int SecondBedtimeAlarm {get;set;}=2400;
@@ -43,10 +44,16 @@ public sealed class IngameAgent
     public AgentUiConfig Config {get;}
     public bool Ready {get;private set;}
     public bool Busy => run!="";
+    public int AiCallCount {get;private set;}
     public string Result {get;private set;}="아직 실행한 작업이 없습니다.";
     public string Status {get;private set;}="연결 준비 중";
     public string LastGoal {get;private set;}="현재 위치와 에너지만 확인하고 보고해줘. 이동하거나 도구를 사용하지 마.";
     public void ClearGoalDraft() { LastGoal=""; }
+    public void ResetAiCallCount()
+    {
+        AiCallCount=0;
+        if(Context.IsWorldReady) Game1.addHUDMessage(new HUDMessage("AI 호출 카운트를 0으로 초기화했습니다."));
+    }
 
     public IngameAgent(IModHelper helper,IMonitor monitor,CommandExecutor executor)
     {
@@ -268,6 +275,7 @@ public sealed class IngameAgent
                 string text=root.TryGetProperty("text",out var t)?t.GetString()??"":"";
                 if(type=="host_error") {Record(text);Status=text;continue;}
                 if(type=="ready") {Ready=true;Status="지시 대기 중 · "+text;Record(text);continue;}
+                if(type=="ai_call") {AiCallCount++;Record("AI 호출 카운트: "+AiCallCount);continue;}
                 if(id!=run || run=="") continue;
                 if(type=="done" || type=="rejected") {
                     executor.StopUiRun();run="";stopping=false;

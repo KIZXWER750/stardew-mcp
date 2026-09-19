@@ -219,7 +219,18 @@ water_plot PAUSED(NO_WATER) → AI가 원래 영역/필터 기억 → find_water
 - 실행 중 실패: status=BLOCKED, reason, confirmedClicks, received(인벤토리 증가분), held(커서의 해당 씨앗 수), spent, requiresInspection=true. **부분 구매는 되돌리지 않고 추가 구매도 하지 않습니다.** 커서 물품이 남으면 사용자가 인벤토리에 넣고 메뉴를 닫아야 할 수 있습니다.
 - 게임/상점 모드마다 메뉴 내부 형식이 다르면 구매 전에 UNSUPPORTED 계열 오류로 중단합니다. 메뉴 호환성은 실제 게임 검증 대상입니다.
 
-### 조합
+### 제작과 재료 조달
+
+| 함수 | 입력 | 결과 및 용도 |
+|---|---|---|
+| `inspect_crafting_recipe` | recipe, quantity(기본 1) | 설치된 게임의 알려진 레시피, 완성품, 재료별 required/available/missing, 출력 용량과 observationId를 반환하는 읽기 전용 관측 |
+| `craft_item` | recipe, quantity, observation_id, request_id | 직전 관측을 재검증하고 재료를 소비해 제작한 뒤 실제 완성품 증가량을 확인. 동일 request_id는 영수증을 반환 |
+
+AI는 부족 재료가 있으면 `lookup_game_knowledge`의 `type=materials`를 먼저 조회하고 상자 기억과 실제 상자 내용을 확인합니다. 안전하고 실행 가능한 최저 노력 방법이 하나면 직접 선택합니다. 지식에 방법이 없거나 여러 방법의 비용·파괴·시간 차이를 사용자의 선호 없이 정하기 어려우면 `request_player_input` 또는 장기 목표의 `request_goal_input`으로 전용 질문창을 엽니다.
+
+제작 실행은 1~99회이며 신선한 관측 ID와 8~128자 요청 ID가 필요합니다. 재료나 인벤토리가 바뀌면 다시 관측해야 합니다. 불확실한 제작 요청을 그대로 반복하지 않고 인벤토리와 레시피를 먼저 재확인합니다.
+
+### 농사 작업 조합
 
 기존 밭 관측 → 필요한 씨앗 수 결정 → 사용자 예산 확인 → 상점 경로 → 이동/출입 → 카운터 상호작용 → 상품 관측 → 구매 영수증 확인 → 상점 닫기 → 요청 시 Farm 복귀 → 같은 밭에 plant_plot → water_plot → 목표 종료.
 

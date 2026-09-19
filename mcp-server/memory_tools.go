@@ -57,8 +57,8 @@ type PersistentTaskIDParams struct {
 	TaskID string `json:"task_id"`
 }
 type KnowledgeLookupParams struct {
-	Subject string `json:"subject,omitempty" jsonschema:"Location, route, shop, crop, fish, villager, festival, recipe, bundle or fact text to find"`
-	Type    string `json:"type,omitempty" jsonschema:"Optional location, route, shop, wiki, crops, fish, villagers, festivals, crafting or bundles"`
+	Subject string `json:"subject,omitempty" jsonschema:"Location, route, shop, crop, fish, villager, festival, recipe, material, bundle or fact text to find"`
+	Type    string `json:"type,omitempty" jsonschema:"Optional location, route, shop, wiki, crops, fish, villagers, festivals, crafting, materials or bundles"`
 }
 type WorldRouteParams struct {
 	From string `json:"from,omitempty" jsonschema:"Internal start location; defaults to current location"`
@@ -156,7 +156,7 @@ func (a *StardewAgent) defineMemoryTools() []copilot.Tool {
 			}
 			return memoryRead("memory_task_complete", map[string]interface{}{"task_id": p.TaskID})
 		}),
-		copilot.DefineTool("lookup_game_knowledge", "Search installed-content knowledge plus attributed wiki facts about crops, fish, villagers, festivals, shops, crafting and bundles. Use type=wiki or a category to browse it. Read-only; installed and live state are final authority.", func(p KnowledgeLookupParams, _ copilot.ToolInvocation) (string, error) {
+		copilot.DefineTool("lookup_game_knowledge", "Search installed-content knowledge plus attributed wiki facts about crops, fish, villagers, festivals, shops, crafting, material acquisition and bundles. Use type=wiki or a category to browse it. Read-only; installed and live state are final authority.", func(p KnowledgeLookupParams, _ copilot.ToolInvocation) (string, error) {
 			return memoryRead("knowledge_lookup", map[string]interface{}{"subject": p.Subject, "type": p.Type})
 		}),
 		copilot.DefineTool("find_world_route", "Find a read-only cached location-to-location route from installed map data. It does not move or prove current access.", func(p WorldRouteParams, _ copilot.ToolInvocation) (string, error) {

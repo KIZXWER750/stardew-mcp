@@ -569,6 +569,8 @@ public partial class CommandExecutor
                 "check_mail" => ExecuteCheckMail(command),
 
                 // Crafting
+                "crafting_inspect" => InspectCraftingRecipe(command),
+                "crafting_execute" => CraftObservedItem(command),
                 "craft_item" => ExecuteCraftItem(command),
 
                 // World Navigation

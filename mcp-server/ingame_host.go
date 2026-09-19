@@ -33,6 +33,7 @@ func emitUI(kind, id, message string) {
 	defer uiOutput.Unlock()
 	_ = json.NewEncoder(os.Stdout).Encode(uiEvent{kind, id, message})
 }
+func isAICallLog(line string) bool { return strings.Contains(line, "[AI API CALL]") }
 func killUIWorker(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
@@ -129,6 +130,9 @@ func runIngameHost() {
 					for s.Scan() {
 						line := s.Text()
 						events <- uiEvent{"log", id, line}
+						if isAICallLog(line) {
+							events <- uiEvent{"ai_call", id, "1"}
+						}
 						if strings.HasSuffix(line, "[UI WORKER FINISHED] "+id) {
 							events <- uiEvent{"finish", id, "Agent turn ended; inspect result above."}
 						}
