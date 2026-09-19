@@ -11,7 +11,7 @@ Get-Command go,gofmt,dotnet -CommandType Application -ErrorAction Stop | Out-Nul
 $copilot = $null
 if (!$BuildOnly -and $env:STARDEW_AI_PROVIDER -eq 'copilot') { $copilot = (Get-Command copilot -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
 $version = (Get-Content "$src\mod\StardewMCP\manifest.json" -Raw | ConvertFrom-Json).Version
-if ($version -ne '1.21.0') { throw "Wrong source version: $version" }
+if ($version -ne '1.21.1') { throw "Wrong source version: $version" }
 
 Push-Location "$src\mcp-server"
 try {
@@ -31,11 +31,11 @@ try {
 } finally { Pop-Location }
 if ($BuildOnly) { Write-Host 'Build and Go tests completed. Nothing installed.'; return }
 
-$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.21.0-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.21.1-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $hadOld = Test-Path $dest
 if ($hadOld) { Copy-Item $dest $backup -Recurse }
 $config = [ordered]@{
-    ServerPath='agent/stardew-mcp-ingame.exe';CopilotCliPath=$copilot;OpenKey='F6';CancelKey='F7';ResetAiCallCountKey='F8';
+    ServerPath='agent/stardew-mcp-ingame.exe';CopilotCliPath=$copilot;OpenKey='F6';CancelKey='F7';ResetAiCallCountKey='F10';
     EnableAutomaticBedtimeAlarm=$true;FirstBedtimeAlarm=2200;SecondBedtimeAlarm=2400;FinalBedtimeAlarm=2500
 }
 $configPath = Join-Path $dest 'config.json'
@@ -44,6 +44,7 @@ if (Test-Path $configPath) {
     foreach ($property in $oldConfig.PSObject.Properties) { $config[$property.Name] = $property.Value }
     $config['ServerPath'] = 'agent/stardew-mcp-ingame.exe'
     $config['CopilotCliPath'] = $copilot
+    $config['ResetAiCallCountKey'] = 'F10'
 }
 try {
     New-Item -ItemType Directory -Path "$dest\agent" -Force | Out-Null
@@ -65,5 +66,5 @@ try {
     } else { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
     throw
 }
-Write-Host '1.21.0 installed. AI can inspect recipes, obtain missing materials from knowledge-guided normal sources, and craft with verified inventory changes. The session-only AI API call counter is shown on the HUD and F8 resets it. Restart Steam/SMAPI; F6 opens commands or a pending question, F7 pauses active goals and plans.'
+Write-Host '1.21.1 installed. The session-only AI API call counter now resets with F10 so it does not conflict with the legacy F8/F9 probe controls. Restart Steam/SMAPI; F6 opens commands or a pending question, F7 pauses active goals and plans.'
 if ($hadOld) { Write-Host "Previous installation: $backup" }

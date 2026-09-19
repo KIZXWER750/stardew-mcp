@@ -16,7 +16,7 @@ public class AgentUiConfig
     public string CopilotCliPath {get;set;}="";
     public SButton OpenKey {get;set;}=SButton.F6;
     public SButton CancelKey {get;set;}=SButton.F7;
-    public SButton ResetAiCallCountKey {get;set;}=SButton.F8;
+    public SButton ResetAiCallCountKey {get;set;}=SButton.F10;
     public bool EnableAutomaticBedtimeAlarm {get;set;}=true;
     public int FirstBedtimeAlarm {get;set;}=2200;
     public int SecondBedtimeAlarm {get;set;}=2400;
