@@ -101,6 +101,11 @@ public partial class CommandExecutor
         public int DropItemsCollected { get; set; }
         public int ObstaclesClearedForDrops { get; set; }
         public List<string> DropEvidence { get; set; } = new();
+        public string DropItemFilter { get; set; } = "";
+        public int DropSearchRadius { get; set; } = 8;
+        public int DesiredInventoryQuantity { get; set; }
+        public int InventoryQuantityBeforeCollection { get; set; }
+        public int InventoryQuantityAfterCollection { get; set; }
         public int DestinationX { get; set; }
         public int DestinationY { get; set; }
         public int PlannedPathLength { get; set; }
@@ -124,12 +129,15 @@ public partial class CommandExecutor
         internal int TreeHitLimit;
         internal bool ActionWasTree;
         internal bool CollectingDrops;
+        internal Point? CollectionOrigin;
+        internal HashSet<Point> CollectedTreeTargets = new();
         internal string ReturnPhase = "";
         internal List<Point> TreeOrigins = new();
         internal Debris? TargetDebris;
         internal string TargetDropItemId = "";
         internal int TargetDropInventoryBefore;
         internal int DropMoveAttempts;
+        internal int MaxDropAccessObstacles = 24;
         internal DateTime DropQuietSince;
         internal Dictionary<string,int> TreeInventoryBefore = new();
         internal bool TravelFinalStarted;
@@ -335,7 +343,8 @@ public partial class CommandExecutor
             throw new InvalidOperationException("BUSY: finish current action first");
         var j=ParseFarmArea(c);
         j.Operation=c.Params.TryGetValue("operation",out var op)?GetStringParam(op):"";
-        if(!new[]{"prepare","water","clear","till","plant","harvest","refill","trees","travel"}.Contains(j.Operation)) throw new InvalidOperationException("Unknown farm operation");
+        if(!new[]{"prepare","water","clear","till","plant","harvest","refill","trees","travel","collect"}.Contains(j.Operation)) throw new InvalidOperationException("Unknown farm operation");
+        if(j.Operation=="collect") return FarmCollectStart(c,j,requestId,fingerprint);
         if(j.Operation=="travel") return FarmTravelStart(c,j,requestId,fingerprint);
         string filter=c.Params.TryGetValue("target_filter",out var f)?GetStringParam(f):"ALL_HOED_SOIL";
         if(filter!="ALL_HOED_SOIL" && filter!="CROPS_ONLY") throw new InvalidOperationException("Unknown target_filter");
@@ -379,6 +388,10 @@ public partial class CommandExecutor
                 .ToList();
             j.Targets=rankedTrees.Take(j.MaxTrees).Select(item=>item.Point).ToList();
             j.TreeOrigins=j.Targets.ToList();
+            if(j.TreeOrigins.Count==0) {
+                for(int y=j.Y;y<j.Y+j.Height;y++) for(int x=j.X;x<j.X+j.Width;x++)
+                    j.TreeOrigins.Add(new Point(x,y));
+            }
             j.TreeInventoryBefore=SnapshotFarmInventory();
             foreach(var skipped in rankedTrees.Skip(j.MaxTrees))
                 j.ExcludedTiles.Add($"({skipped.Point.X},{skipped.Point.Y}): max_trees limit");
@@ -414,6 +427,7 @@ public partial class CommandExecutor
 
     private void SaveFarm(FarmJob j)
     {
+        SavePendingTrees(j);
         try {
             var dir=Path.Combine(_helper.DirectoryPath,"farm-tasks");Directory.CreateDirectory(dir);
             var path=Path.Combine(dir,j.TaskId+".json");
@@ -523,7 +537,7 @@ public partial class CommandExecutor
             var now=DateTime.UtcNow;var player=Game1.player;
             if(now>j.Lease) { FinishFarm(j,"PAUSED","CLIENT_HEARTBEAT_LOST");return; }
             if(now>j.Deadline || FarmDate()!=j.StartDate || Game1.timeOfDay>=j.StopTime) { FinishFarm(j,"PAUSED","TIME_LIMIT");return; }
-            if(j.Operation=="trees" && j.CollectingDrops && j.Phase.StartsWith("TREE_DROP")) {
+            if((j.Operation=="trees" || j.Operation=="collect") && j.CollectingDrops && j.Phase.StartsWith("TREE_DROP")) {
                 UpdateTreeDropCollection(j,now);return;
             }
             if(j.Phase=="WAIT_TOOL") {
@@ -534,7 +548,7 @@ public partial class CommandExecutor
                 if((now-j.PhaseStarted).TotalSeconds>5) { FinishFarm(j,"BLOCKED","TOOL_RESULT_TIMEOUT");return; }
                 if(player.UsingTool || !player.CanMove) { j.IdleSince=default;return; }
                 var t=ReadFarmTile(j.Target.X,j.Target.Y);
-                bool success=(j.Operation=="trees" || j.Operation=="travel") && j.ActionWasTree
+                bool success=(j.Operation=="trees" || j.Operation=="travel" || j.Operation=="collect") && j.ActionWasTree
                     ? !t.IsWildTree
                     : j.Action=="Hoe"?t.Hoed:j.Action=="Watering Can"?t.Watered:t.Obstacle=="";
                 if(success) {
@@ -547,6 +561,11 @@ public partial class CommandExecutor
                         j.ClearedTravelObstacles++;
                         j.TravelEvidence.Add($"cleared {j.TravelObstacleBefore} at ({j.Target.X},{j.Target.Y}) with {j.Action}");
                     }
+                    if(j.Operation=="trees" && !j.CollectingDrops) {
+                        j.CollectionOrigin=j.Target;
+                        j.TreeOrigins=new List<Point>{j.Target};
+                        BeginTreeDropCollection(j,now);return;
+                    }
                     SaveFarm(j);j.NextActionAfter=now.AddMilliseconds(900);
                     j.Phase=j.ReturnPhase!=""?j.ReturnPhase:"SELECT";j.ReturnPhase="";return;
                 }
@@ -557,7 +576,7 @@ public partial class CommandExecutor
                 if((now-j.IdleSince).TotalMilliseconds<500) return;
                 _monitor.Log($"[FARM VERIFY] No change after settle: action={j.Action}, player=({(int)player.Tile.X},{(int)player.Tile.Y}), facing={player.FacingDirection}, expected=({j.Target.X},{j.Target.Y}), terrain={t.Terrain}, hoed={t.Hoed}, watered={t.Watered}",LogLevel.Info);
                 // A normal stone/grass may need several hits. Bound attempts and recheck protections.
-                if((j.Operation=="trees" || j.Operation=="travel") && j.Action=="Axe" && t.IsWildTree) {
+                if((j.Operation=="trees" || j.Operation=="travel" || j.Operation=="collect") && j.Action=="Axe" && t.IsWildTree) {
                     if(player.Stamina>=j.EnergyBeforeAction && t.Progress==j.Before) {
                         FinishFarm(j,"BLOCKED",$"NO_VERIFIED_TREE_HIT at ({t.X},{t.Y}); no blind retry");return;
                     }

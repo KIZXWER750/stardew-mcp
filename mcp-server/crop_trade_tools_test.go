@@ -25,3 +25,14 @@ func TestStorageTakeLimits(t *testing.T) {
 		}
 	}
 }
+func TestStoragePutLimits(t *testing.T) {
+	v, e := (StoragePutParams{QuoteID: "q", KeepInInventory: 3}).values()
+	if e != nil || v["quote_id"] != "q" || v["keep_in_inventory"] != 3 {
+		t.Fatal(v, e)
+	}
+	for _, bad := range []StoragePutParams{{QuoteID: ""}, {QuoteID: "q", KeepInInventory: -1}} {
+		if _, e := bad.values(); e == nil {
+			t.Fatal("accepted invalid storage deposit")
+		}
+	}
+}

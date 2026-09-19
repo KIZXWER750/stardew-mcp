@@ -11,7 +11,7 @@ Get-Command go,gofmt,dotnet -CommandType Application -ErrorAction Stop | Out-Nul
 $copilot = $null
 if (!$BuildOnly -and $env:STARDEW_AI_PROVIDER -eq 'copilot') { $copilot = (Get-Command copilot -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
 $version = (Get-Content "$src\mod\StardewMCP\manifest.json" -Raw | ConvertFrom-Json).Version
-if ($version -ne '1.12.0') { throw "Wrong source version: $version" }
+if ($version -ne '1.14.0') { throw "Wrong source version: $version" }
 
 Push-Location "$src\mcp-server"
 try {
@@ -31,10 +31,13 @@ try {
 } finally { Pop-Location }
 if ($BuildOnly) { Write-Host 'Build and Go tests completed. Nothing installed.'; return }
 
-$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.12.0-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$backup = Join-Path (Split-Path $src -Parent) ('StardewMCP-before-1.14.0-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $hadOld = Test-Path $dest
 if ($hadOld) { Copy-Item $dest $backup -Recurse }
-$config = [ordered]@{ServerPath='agent/stardew-mcp-ingame.exe';CopilotCliPath=$copilot;OpenKey='F6';CancelKey='F7'}
+$config = [ordered]@{
+    ServerPath='agent/stardew-mcp-ingame.exe';CopilotCliPath=$copilot;OpenKey='F6';CancelKey='F7';
+    EnableAutomaticBedtimeAlarm=$true;FirstBedtimeAlarm=2200;SecondBedtimeAlarm=2400;FinalBedtimeAlarm=2500
+}
 $configPath = Join-Path $dest 'config.json'
 if (Test-Path $configPath) {
     $oldConfig = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -56,5 +59,5 @@ try {
     } else { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
     throw
 }
-Write-Host '1.12.0 installed. Farm travel can clear verified natural obstacles while preserving crops, soil, mature/fruit trees, and facilities. Restart Steam/SMAPI; F6 opens commands, F7 cancels.'
+Write-Host '1.14.0 installed. Overnight confirmations, per-tree stump/drop completion, persistent tree resume and farthest-first shortest clearing routes are included. Restart Steam/SMAPI; F6 opens commands, F7 cancels.'
 if ($hadOld) { Write-Host "Previous installation: $backup" }

@@ -34,7 +34,7 @@ func TestTreeDropGameContractIsPackaged(t *testing.T) {
 		"couldInventoryAcceptThisItem",
 		"DROP_DISAPPEARED_WITHOUT_INVENTORY_GAIN",
 		"DROP_UNREACHABLE_PROTECTED_PATH",
-		"ObstaclesClearedForDrops>=24",
+		"ObstaclesClearedForDrops>=j.MaxDropAccessObstacles",
 		"DropMoveAttempts<12",
 		"DropItemsCollected+=gained",
 	} {

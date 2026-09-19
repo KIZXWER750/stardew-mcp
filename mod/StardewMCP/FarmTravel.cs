@@ -17,7 +17,9 @@ public partial class CommandExecutor
     }
 
     private bool FarmActionCanClearTree(FarmJob job,FarmTile tile)
-        => tile.IsWildTree && (job.Operation=="trees" || job.Operation=="travel" && TravelCanClear(tile));
+        => tile.IsWildTree && !tile.HasCrop && !tile.Hoed
+            && tile.Obstacle.StartsWith("protected wild tree")
+            && (job.Operation=="trees" || job.CollectingDrops || job.Operation=="travel" && TravelCanClear(tile));
 
     private int? TravelClearingCost(int x,int y)
     {

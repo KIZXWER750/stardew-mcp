@@ -214,3 +214,9 @@ secrets/
 *.pem
 *.key
 credentials.json
+
+# Per-save private runtime state
+**/pending-work/
+**/farm-tasks/
+**/logs/
+**/config.json

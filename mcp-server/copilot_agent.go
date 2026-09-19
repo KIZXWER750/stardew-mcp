@@ -882,13 +882,17 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
-	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove up to max_trees ordinary wild trees at any growth stage, or existing ordinary tree stumps, inside one explicit Farm rectangle. Selection prioritizes mature trees, then existing stumps, then young trees; distance only breaks ties within the same class. Young trees are removed by default; set preserve_young_trees=true only when the user explicitly asks to keep them. A basic Axe is bounded to 10 verified hits for a mature tree and 5 for its stump; young trees have a smaller bound. After removal, detect real location.debris drops, approach and collect them, clearing only supported non-protected grass, weeds, small stones, twigs or ordinary wild trees when needed for access. Always preserve fruit trees, crops, buildings, machines and placed facilities.",
+	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove ordinary wild trees and collect their drops. For an inventory quantity goal always use max_trees=1, inspect the inventory, and call collect_loose_items before selecting another tree. Preserve fruit trees, crops and facilities.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("trees", p)
 		})
 	moveWithClearingTool := copilot.DefineTool("move_with_clearing", "Move to an observed Farm destination using a weighted route which may clear only grass, weeds, twigs, small stones, young ordinary trees, and ordinary tree stumps. Use after move_to reports no path, or when the goal explicitly authorizes natural-obstacle clearing. Never clears mature trees, fruit trees, crops, HoeDirt, buildings, chests, machines, furniture, fences, resource clumps, or other placed facilities. Verifies every removal and final arrival.",
 		func(p ClearingMoveParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("travel", p.plot())
+		})
+	collectLooseItemsTool := copilot.DefineTool("collect_loose_items", "Before creating more resources for an inventory quantity goal, scan actual Farm location.debris around the player and collect matching loose items first. Pass exact item_id and desired_inventory_quantity. Verifies inventory gains and only then reports matching drops exhausted.",
+		func(p CollectLooseParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("collect", p.plot())
 		})
 	analyzeFarmTool := copilot.DefineTool("analyze_farm_work", "Read-only preflight for a Farm rectangle and operation: eligible/already satisfied/blocked tiles, tools, seed count, water and energy reserve. Analysis never changes the world; execution rechecks.",
 		func(p AnalyzeParams, inv copilot.ToolInvocation) (string, error) { return a.analyzeFarm(p) })
@@ -912,15 +916,18 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		defer a.toolMutex.Unlock()
 		return farmReadCommand("crop_sell", v)
 	})
-	storageInspectTool := copilot.DefineTool("inspect_storage", "Read nearby ordinary player chest positions; crop contents only from an actually opened chest. Returns chest IDs or crop-stack quote IDs. No remote access.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+	storageInspectTool := copilot.DefineTool("inspect_storage", "Read nearby ordinary player chest positions. For the actually opened chest, returns exact total item units, occupied/free slots, per-item and per-quality totals, plus quote IDs for every transferable visible stack. No remote access.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
 		return farmReadCommand("storage_inspect", nil)
+	})
+	storageInspectClosedTool := copilot.DefineTool("inspect_closed_storage", "Read-only survey of all ordinary player chests in the current loaded location without opening them. Returns only chest position/color, item lists and quantities, and occupied/free/capacity summaries. Returns no quote IDs or mutation handles and cannot transfer anything; open and inspect a chosen chest before any change.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		return farmReadCommand("storage_inspect_closed", nil)
 	})
 	storageOpenTool := copilot.DefineTool("open_storage", "After move_to to a cardinally adjacent tile of an observed regular chest, interact once. INPUT_SENT is not success: inspect_storage must confirm open contents.", func(p StorageOpenParams, inv copilot.ToolInvocation) (string, error) {
 		a.toolMutex.Lock()
 		defer a.toolMutex.Unlock()
 		return farmReadCommand("storage_open", map[string]interface{}{"chest_id": p.ChestID})
 	})
-	storageTakeTool := copilot.DefineTool("take_storage_crop", "Take one observed WHOLE crop stack from the open ordinary chest using menu clicks. Requires one empty inventory slot and keep_in_chest reserve per item ID. Verifies both inventories; never split or take non-crops.", func(p StorageTakeParams, inv copilot.ToolInvocation) (string, error) {
+	storageTakeTool := copilot.DefineTool("take_storage_item", "Take one observed WHOLE item stack from the open ordinary chest. Compatible partial inventory stacks are filled before an empty slot is used. Applies keep_in_chest per item ID and verifies both inventories.", func(p StorageTakeParams, inv copilot.ToolInvocation) (string, error) {
 		v, e := p.values()
 		if e != nil {
 			return "TASK_BLOCKED: " + e.Error(), nil
@@ -929,7 +936,26 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		defer a.toolMutex.Unlock()
 		return farmReadCommand("storage_take", v)
 	})
-	storageCloseTool := copilot.DefineTool("close_storage", "Close an opened chest only with an empty cursor, without discarding items.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+	storagePutTool := copilot.DefineTool("store_inventory_item", "Put one observed inventory stack into the open ordinary chest through the native Chest.addItem path. Only the quantity actually accepted by the chest is removed from inventory; combined item units must be conserved, then the chest is organized. Applies keep_in_inventory per item ID.", func(p StoragePutParams, inv copilot.ToolInvocation) (string, error) {
+		v, e := p.values()
+		if e != nil {
+			return "TASK_BLOCKED: " + e.Error(), nil
+		}
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("storage_put", v)
+	})
+	storageStackExistingTool := copilot.DefineTool("stack_inventory_to_storage", "Press the open chest menu's native Add To Existing Stacks button exactly once. Moves only compatible inventory items whose kind already exists in the chest, then verifies equal inventory decrease and chest increase. No new item kind is introduced.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("storage_stack_existing", nil)
+	})
+	storageOrganizeTool := copilot.DefineTool("organize_storage", "Press the open chest menu's native Organize button exactly once and verify the chest's total item units are unchanged. This invalidates prior storage quotes; inspect again before another transfer.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("storage_organize", nil)
+	})
+	storageCloseTool := copilot.DefineTool("close_storage", "Close an opened chest through the game's global active-menu exit path with an empty cursor. Mutating storage tools already organize before returning; this close tool intentionally performs no extra same-tick organize click.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
 		a.toolMutex.Lock()
 		defer a.toolMutex.Unlock()
 		return farmReadCommand("storage_close", nil)
@@ -964,9 +990,9 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
-			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_storage", "open_storage", "take_storage_crop", "close_storage",
+			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
-			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing",
+			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing", "collect_loose_items",
 			"move_to", "get_surroundings", "interact", "use_tool",
 			"use_tool_repeat", "face_direction", "select_item", "switch_tool",
 			"eat_item", "enter_door", "exit_house", "find_best_target", "clear_target",
@@ -976,8 +1002,8 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules,
 		},
 		Tools: []copilot.Tool{
-			shopStatusTool, saleInspectTool, saleTool, storageInspectTool, storageOpenTool, storageTakeTool, storageCloseTool,
-			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool,
+			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
+			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,
 			useToolRepeatTool, faceDirectionTool, selectItemTool, switchToolTool,
@@ -1109,22 +1135,27 @@ func (a *StardewAgent) runAutonomousLoop(goal string) {
 		// Determine active goal
 		activeGoal := goal
 		urgency := ""
+		timeDecisionAlarmGoal := strings.Contains(goal, "AUTOMATIC TIME DECISION ALARM")
 
-		if state.Time.TimeOfDay >= 2500 {
+		if state.Time.TimeOfDay >= 2500 && !timeDecisionAlarmGoal {
 			activeGoal = "EMERGENCY: Go to bed NOW! Time is " + state.Time.TimeString
 			urgency = "CRITICAL"
-		} else if state.Time.TimeOfDay >= 2400 {
+		} else if state.Time.TimeOfDay >= 2400 && !timeDecisionAlarmGoal {
 			activeGoal = "URGENT: Find your bed and sleep. It's " + state.Time.TimeString
 			urgency = "URGENT"
 		} else if state.Time.TimeOfDay >= 2200 {
 			urgency = "Getting late"
 		}
 
-		if state.Player.Energy < 10 {
+		if state.Player.Energy < 10 && !timeDecisionAlarmGoal {
 			activeGoal = "LOW ENERGY: Eat food from inventory OR go to bed immediately!"
 			urgency = "LOW ENERGY"
 		} else if state.Player.Energy < 30 {
-			urgency = "Low energy"
+			if timeDecisionAlarmGoal {
+				urgency = "BEDTIME ALARM; preserve remaining energy for return home"
+			} else {
+				urgency = "Low energy"
+			}
 		}
 
 		// Skip if player is busy

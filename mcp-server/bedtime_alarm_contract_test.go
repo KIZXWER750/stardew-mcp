@@ -1,0 +1,39 @@
+package main
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestBedtimeAlarmPolicyContract(t *testing.T) {
+	agentBytes, err := os.ReadFile("../mod/StardewMCP/IngameAgent.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := string(agentBytes)
+	for _, required := range []string{
+		"FirstBedtimeAlarm {get;set;}=2200", "SecondBedtimeAlarm {get;set;}=2400", "FinalBedtimeAlarm {get;set;}=2500",
+		"AUTOMATIC TIME DECISION ALARM", "get_surroundings and assess_daily_status",
+		"Returning home is NOT mandatory", "pendingBedtimeLevel==1 && !executor.HasActiveGameplayAction",
+		"Busy && level>=2", "InterruptForBedtimeAlarm", "TryStartPendingBedtime",
+	} {
+		if !strings.Contains(agent, required) {
+			t.Fatal("alarm policy missing: " + required)
+		}
+	}
+	entryBytes, err := os.ReadFile("../mod/StardewMCP/ModEntry.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(entryBytes), "GameLoop.TimeChanged += OnTimeChanged") {
+		t.Fatal("time event missing")
+	}
+	controlBytes, err := os.ReadFile("../mod/StardewMCP/IngameControl.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(controlBytes), "HasActiveGameplayAction") {
+		t.Fatal("safe-point signal missing")
+	}
+}

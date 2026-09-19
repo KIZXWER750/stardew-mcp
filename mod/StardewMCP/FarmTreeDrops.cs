@@ -18,7 +18,7 @@ public partial class CommandExecutor
 
     private static int FarmInventoryCount(string qualifiedItemId)
     {
-        return Game1.player.Items.Where(item=>item!=null && item.QualifiedItemId==qualifiedItemId)
+        return Game1.player.Items.Where(item=>item!=null && (item.QualifiedItemId==qualifiedItemId || item.ItemId==qualifiedItemId))
             .Sum(item=>item!.Stack);
     }
 
@@ -46,13 +46,41 @@ public partial class CommandExecutor
         return new Point((int)Math.Floor(position.X/Game1.tileSize),(int)Math.Floor(position.Y/Game1.tileSize));
     }
 
+    private static bool FarmDropMatchesFilter(FarmJob j,Item? item)
+    {
+        if(j.DropItemFilter=="") return true;
+        return item!=null && (item.QualifiedItemId==j.DropItemFilter || item.ItemId==j.DropItemFilter);
+    }
+
     private List<Debris> TreeDropCandidates(FarmJob j)
     {
         return Game1.currentLocation.debris.Where(IsCollectibleFarmDebris).Where(debris=> {
             var tile=FarmDebrisTile(debris);
+            var item=FarmDebrisItem(debris);
             return tile.HasValue && j.TreeOrigins.Any(origin=>
-                Math.Abs(origin.X-tile.Value.X)<=8 && Math.Abs(origin.Y-tile.Value.Y)<=8);
+                Math.Abs(origin.X-tile.Value.X)<=j.DropSearchRadius && Math.Abs(origin.Y-tile.Value.Y)<=j.DropSearchRadius)
+                && FarmDropMatchesFilter(j,item);
         }).ToList();
+    }
+
+    private CommandResponse FarmCollectStart(GameCommand c,FarmJob j,string requestId,string fingerprint)
+    {
+        if(j.Location!="Farm" || Game1.currentLocation.Name!="Farm") throw new InvalidOperationException("collect_loose_items currently requires Farm");
+        int radius=c.Params.TryGetValue("search_radius",out var radiusValue)?GetIntParam(radiusValue):20;
+        if(radius<1 || radius>30) throw new InvalidOperationException("search_radius must be 1..30");
+        int maxObstacles=c.Params.TryGetValue("max_obstacles",out var maximum)?GetIntParam(maximum):8;
+        if(maxObstacles<0 || maxObstacles>16) throw new InvalidOperationException("max_obstacles must be 0..16");
+        string filter=c.Params.TryGetValue("item_id",out var itemValue)?GetStringParam(itemValue):"";
+        int desired=c.Params.TryGetValue("desired_inventory_quantity",out var desiredValue)?GetIntParam(desiredValue):0;
+        if(desired<0 || desired>9999) throw new InvalidOperationException("desired_inventory_quantity must be 0..9999");
+        if(filter.StartsWith("(O)")) filter=filter.Substring(3);
+        j.DropItemFilter=filter;j.DropSearchRadius=radius;j.DesiredInventoryQuantity=desired;j.MaxDropAccessObstacles=maxObstacles;
+        j.TreeOrigins=new List<Point>{new((int)Game1.player.Tile.X,(int)Game1.player.Tile.Y)};j.TreeInventoryBefore=SnapshotFarmInventory();
+        j.InventoryQuantityBeforeCollection=filter==""?0:FarmInventoryCount(filter);j.InventoryQuantityAfterCollection=j.InventoryQuantityBeforeCollection;
+        j.TotalTargets=0;j.CompletedTargets=0;j.AlreadySatisfiedTargets=0;j.Deadline=DateTime.UtcNow.AddMinutes(5);j.Lease=DateTime.UtcNow.AddSeconds(20);j.StartDate=FarmDate();
+        j.RequestId=requestId;j.CollectingDrops=true;j.Phase="TREE_DROP_SETTLE";j.NextActionAfter=DateTime.UtcNow.AddMilliseconds(500);j.DropQuietSince=default;
+        j.DropEvidence.Add($"loose-item scan radius={radius}, item_filter={(filter==""?"ANY":filter)}, desired_inventory={desired}");
+        _farmJob=j;_farmHistory[j.TaskId]=j;if(requestId!="") _farmRequests[requestId]=(fingerprint,j);SaveFarm(j);return FarmReply(c,j);
     }
 
     private void RecordTreeInventoryDelta(FarmJob j)
@@ -75,7 +103,7 @@ public partial class CommandExecutor
         j.NextActionAfter=now.AddMilliseconds(2600);
         j.DropQuietSince=default;
         j.TargetDebris=null;
-        j.DropEvidence.Add("all selected ordinary trees are gone; scanning loose location.debris drops");
+        j.DropEvidence.Add("tree and stump removed; scanning loose location.debris drops before selecting another tree");
         SaveFarm(j);
         _monitor.Log($"[TREE DROPS] {j.TaskId} waiting for falling-tree drops to settle",LogLevel.Info);
     }
@@ -110,10 +138,19 @@ public partial class CommandExecutor
             return true;
         }
         var positions=PickupPositions(drop.Value)
-            .Select(point=>(Point:point,Path:_pathfinder.FindPath(Game1.currentLocation,player.Tile,new Vector2(point.X,point.Y))))
+            .Select(point=>(Point:point,Path:_pathfinder.FindPathWithClearingCosts(Game1.currentLocation,player.Tile,new Vector2(point.X,point.Y),DropClearingCost,shortestDistance:true)))
             .Where(item=>item.Path!=null)
             .OrderBy(item=>item.Path!.Count).ToList();
         if(positions.Count==0) return false;
+        var route=positions[0].Path!;
+        var obstacles=route.Where(step=>!_pathfinder.IsWalkable(Game1.currentLocation,(int)step.X,(int)step.Y)).ToList();
+        if(obstacles.Count>j.MaxDropAccessObstacles-j.ObstaclesClearedForDrops) {
+            FinishFarm(j,"BLOCKED","DROP_CLEARING_LIMIT: shortest route exceeds remaining obstacle budget");return true;
+        }
+        if(obstacles.Count>0) {
+            var first=obstacles[0];
+            return QueueTreeDropObstacle(j,new Point((int)first.X,(int)first.Y),now);
+        }
         var destination=positions[0].Point;
         j.TargetDebris=debris;j.DropMoveAttempts++;j.Phase="TREE_DROP_MOVING";j.PhaseStarted=now;
         ExecuteMoveTo(new GameCommand { Id=j.TaskId,Action="move_to",Params=new(){{"x",destination.X},{"y",destination.Y}},OnComplete=response=> {
@@ -129,40 +166,44 @@ public partial class CommandExecutor
         return true;
     }
 
-    private bool QueueTreeDropObstacle(FarmJob j,Point drop,DateTime now)
+    private int? DropClearingCost(int x,int y)
     {
-        if(j.ObstaclesClearedForDrops>=24) return false;
-        var layer=Game1.currentLocation.Map.Layers[0];
-        int px=(int)Game1.player.Tile.X,py=(int)Game1.player.Tile.Y;
-        int minX=Math.Max(0,Math.Min(px,drop.X)-2),maxX=Math.Min(layer.LayerWidth-1,Math.Max(px,drop.X)+2);
-        int minY=Math.Max(0,Math.Min(py,drop.Y)-2),maxY=Math.Min(layer.LayerHeight-1,Math.Max(py,drop.Y)+2);
-        var candidates=new List<(FarmTile Tile,List<FarmApproach> Approaches,int Score)>();
-        for(int y=minY;y<=maxY;y++) for(int x=minX;x<=maxX;x++) {
-            var tile=ReadFarmTile(x,y);
-            // FruitTree, crops, HoeDirt, buildings, machines, furniture and
-            // resource clumps never expose a clearing tool here.
-            bool removable=tile.IsWildTree || (tile.ClearTool!="" && !tile.HasCrop && !tile.Hoed);
-            if(!removable) continue;
-            var approaches=ReadFarmApproaches(x,y).Where(a=>a.Reachable).ToList();
-            if(approaches.Count==0) continue;
-            int score=Math.Abs(x-drop.X)+Math.Abs(y-drop.Y)+Math.Abs(x-px)+Math.Abs(y-py);
-            candidates.Add((tile,approaches,score));
-        }
-        var selected=candidates.OrderBy(item=>item.Score).FirstOrDefault();
-        if(selected.Tile==null) return false;
-        j.Target=new Point(selected.Tile.X,selected.Tile.Y);
-        if(selected.Tile.IsWildTree && !j.TreeOrigins.Contains(j.Target)) j.TreeOrigins.Add(j.Target);
-        j.Action=selected.Tile.IsWildTree?"Axe":selected.Tile.ClearTool;
-        j.ActionWasTree=selected.Tile.IsWildTree;
-        j.Approaches=selected.Approaches.OrderBy(a=>a.PathLength).Select(a=>new Point(a.X,a.Y)).ToList();
+        var tile=ReadFarmTile(x,y);
+        var location=Game1.currentLocation;
+        // An obstacle must not conceal a wall, crop, placed object, or large feature.
+        if(tile.HasCrop || tile.Hoed || !location.isTilePassable(new xTile.Dimensions.Location(x,y),Game1.viewport)
+            || location.largeTerrainFeatures.Any(feature=>feature.getBoundingBox().Intersects(new Rectangle(x*64,y*64,64,64)))) return null;
+        bool tree=tile.IsWildTree && tile.Obstacle.StartsWith("protected wild tree");
+        bool removable=tree || TravelCanClear(tile);
+        if(!removable) return null;
+        string tool=tree?"Axe":tile.ClearTool;
+        if(tool=="Scythe" && tile.Obstacle=="weed") tool="Pickaxe";
+        return FarmToolSlot(tool)>=0?1:null;
+    }
+
+    private bool QueueTreeDropObstacle(FarmJob j,Point obstacle,DateTime now)
+    {
+        if(j.ObstaclesClearedForDrops>=j.MaxDropAccessObstacles) return false;
+        if(!DropClearingCost(obstacle.X,obstacle.Y).HasValue) return false;
+        var tile=ReadFarmTile(obstacle.X,obstacle.Y);
+        var approaches=ReadFarmApproaches(obstacle.X,obstacle.Y).Where(a=>a.Reachable).OrderBy(a=>a.PathLength).ToList();
+        if(approaches.Count==0) return false;
+        j.Target=obstacle;
+        if(tile.IsWildTree && !j.TreeOrigins.Contains(j.Target)) j.TreeOrigins.Add(j.Target);
+        j.Action=tile.IsWildTree?"Axe":tile.ClearTool;
+        j.ActionWasTree=tile.IsWildTree;
+        j.Approaches=approaches.Select(a=>new Point(a.X,a.Y)).ToList();
         j.ReturnPhase="TREE_DROP_SELECT";j.Phase="APPROACH";j.PhaseStarted=now;j.Attempts=0;
-        _monitor.Log($"[TREE DROP CLEAR] drop=({drop.X},{drop.Y}) obstacle=({j.Target.X},{j.Target.Y}) type={selected.Tile.Obstacle} tool={j.Action}",LogLevel.Info);
+        SaveFarm(j);
+        _monitor.Log($"[TREE DROP CLEAR] shortest-route obstacle=({obstacle.X},{obstacle.Y}) tool={j.Action}",LogLevel.Info);
         return true;
     }
 
     private void UpdateTreeDropCollection(FarmJob j,DateTime now)
     {
         if(now<j.NextActionAfter) return;
+        if(Game1.activeClickableMenu!=null || Game1.player.UsingTool || !Game1.player.CanMove) return;
+        if(Game1.player.Stamina<j.MinimumEnergy+4) {FinishFarm(j,"PAUSED","LOW_ENERGY");return;}
         if(j.Phase=="TREE_DROP_SETTLE") {j.Phase="TREE_DROP_SELECT";return;}
         if(j.Phase=="TREE_DROP_MOVING") {
             if((now-j.PhaseStarted).TotalSeconds>15) j.Phase="TREE_DROP_SELECT";
@@ -198,26 +239,39 @@ public partial class CommandExecutor
             return;
         }
         if(j.Phase!="TREE_DROP_SELECT") return;
+        if(j.DropItemFilter!="") {
+            j.InventoryQuantityAfterCollection=FarmInventoryCount(j.DropItemFilter);
+            if(j.DesiredInventoryQuantity>0 && j.InventoryQuantityAfterCollection>=j.DesiredInventoryQuantity) {RecordTreeInventoryDelta(j);FinishFarm(j,"COMPLETED",$"Desired inventory reached from loose items: {j.InventoryQuantityAfterCollection}/{j.DesiredInventoryQuantity}");return;}
+        }
         var drops=TreeDropCandidates(j);
         j.DropsDetected=Math.Max(j.DropsDetected,j.DropsCollected+drops.Count);
         if(drops.Count==0) {
             if(j.DropQuietSince==default) {j.DropQuietSince=now;j.NextActionAfter=now.AddMilliseconds(1200);return;}
             if((now-j.DropQuietSince).TotalMilliseconds<1200) return;
             RecordTreeInventoryDelta(j);
-            FinishFarm(j,"COMPLETED",$"All trees/stumps removed and nearby loose drops collected; debris={j.DropsCollected}, item_units={j.DropItemsCollected}, access_obstacles={j.ObstaclesClearedForDrops}");
+            j.InventoryQuantityAfterCollection=j.DropItemFilter==""?0:FarmInventoryCount(j.DropItemFilter);
+            string reason=j.Operation=="collect"?$"All matching loose items exhausted; inventory={j.InventoryQuantityAfterCollection}, desired={j.DesiredInventoryQuantity}, debris={j.DropsCollected}, item_units={j.DropItemsCollected}":$"All trees/stumps removed and nearby loose drops collected; debris={j.DropsCollected}, item_units={j.DropItemsCollected}, access_obstacles={j.ObstaclesClearedForDrops}";
+            if(j.Operation=="trees" && j.CollectionOrigin.HasValue) {
+                j.CollectedTreeTargets.Add(j.CollectionOrigin.Value);
+                j.CollectionOrigin=null;j.CollectingDrops=false;j.TargetDebris=null;
+                j.TreeOrigins=j.Targets.ToList();j.Phase="SELECT";
+                SaveFarm(j);
+                if(j.CompletedTargets<j.TotalTargets) return;
+            }
+            FinishFarm(j,"COMPLETED",reason);
             return;
         }
         j.DropQuietSince=default;
         var ordered=drops.Select(drop=>(Drop:drop,Tile:FarmDebrisTile(drop)))
             .Where(item=>item.Tile.HasValue)
-            .OrderBy(item=>Math.Abs(item.Tile!.Value.X-Game1.player.Tile.X)+Math.Abs(item.Tile.Value.Y-Game1.player.Tile.Y)).ToList();
+            .OrderByDescending(item=>Math.Abs(item.Tile!.Value.X-Game1.player.Tile.X)+Math.Abs(item.Tile.Value.Y-Game1.player.Tile.Y)).ToList();
         if(ordered.Count==0) {FinishFarm(j,"BLOCKED","DROP_POSITION_UNAVAILABLE");return;}
         var chosen=ordered[0];
         var item=FarmDebrisItem(chosen.Drop);
         if(item==null) {FinishFarm(j,"BLOCKED","DROP_ITEM_UNAVAILABLE");return;}
         if(!Game1.player.couldInventoryAcceptThisItem(item)) {FinishFarm(j,"PAUSED","INVENTORY_FULL_DURING_DROP_COLLECTION");return;}
         if(QueueTreeDropPickupMove(j,chosen.Drop,now)) return;
-        if(QueueTreeDropObstacle(j,chosen.Tile!.Value,now)) return;
+
         FinishFarm(j,"BLOCKED",$"DROP_UNREACHABLE_PROTECTED_PATH at ({chosen.Tile.Value.X},{chosen.Tile.Value.Y})");
     }
 }

@@ -29,6 +29,7 @@ func farmKey(op string, p PlotParams) string {
 	seed, policy := "", ""
 	maxTrees, preserveYoungTrees := 0, false
 	maxObstacles := 0
+	dropItem, dropRadius, desiredQuantity := "", 0, 0
 	if op == "plant" {
 		seed = strings.TrimPrefix(p.SeedItemID, "(O)")
 		policy = p.ExistingCropPolicy
@@ -49,7 +50,15 @@ func farmKey(op string, p PlotParams) string {
 			maxObstacles = 8
 		}
 	}
-	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, preserveYoungTrees, maxObstacles})
+	if op == "collect" {
+		dropItem = p.DropItemID
+		dropRadius = p.DropSearchRadius
+		if dropRadius == 0 {
+			dropRadius = 20
+		}
+		desiredQuantity = p.DesiredQuantity
+	}
+	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, preserveYoungTrees, maxObstacles, dropItem, dropRadius, desiredQuantity})
 	return string(b)
 }
 

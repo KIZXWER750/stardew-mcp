@@ -24,8 +24,9 @@ public class ModEntry : Mod
         _wsServer = new WebSocketServer(Monitor, _stateSerializer, _commandExecutor);
         _agentUi = new IngameAgent(helper,Monitor,_commandExecutor);
         helper.Events.Input.ButtonPressed += (_,e) => {
-            if(!Context.IsWorldReady || _agentUi==null) return;
+            if(_agentUi==null) return;
             if(e.Button==_agentUi.Config.CancelKey) {Helper.Input.Suppress(e.Button);_agentUi.Cancel();}
+            if(!Context.IsWorldReady) return;
             if(e.Button==_agentUi.Config.OpenKey && Game1.activeClickableMenu==null) {
                 Helper.Input.Suppress(e.Button);
                 if(_agentUi.Busy) Game1.addHUDMessage(new HUDMessage("작업 중입니다. 취소: "+_agentUi.Config.CancelKey));
@@ -47,6 +48,7 @@ public class ModEntry : Mod
         helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
         helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
+        helper.Events.GameLoop.TimeChanged += OnTimeChanged;
         helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
 
         Monitor.Log("Stardew MCP Bridge loaded!", LogLevel.Info);
@@ -60,12 +62,21 @@ public class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        _commandExecutor?.LoadPendingTrees();
         _agentUi?.StartHost();
+        _agentUi?.CheckBedtimeAlarm();
         Monitor.Log($"Save loaded: {Game1.player.Name} on {Game1.player.farmName} Farm", LogLevel.Info);
+    }
+
+    private void OnTimeChanged(object? sender, TimeChangedEventArgs e)
+    {
+        _agentUi?.CheckBedtimeAlarm();
     }
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
+        _commandExecutor?.UpdateSleepTransition();
+        _commandExecutor?.ProcessOvernightCommands();
         _agentUi?.Tick();
         // Only process when game is running
         if (!Context.IsWorldReady)
@@ -88,6 +99,7 @@ public class ModEntry : Mod
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
         _agentUi?.Shutdown();
+        _agentUi?.ResetBedtimeAlarm();
         _commandExecutor?.CancelFarmOnTitle();
         Monitor.Log("Returned to title screen", LogLevel.Info);
     }

@@ -16,6 +16,10 @@ public class AgentUiConfig
     public string CopilotCliPath {get;set;}="";
     public SButton OpenKey {get;set;}=SButton.F6;
     public SButton CancelKey {get;set;}=SButton.F7;
+    public bool EnableAutomaticBedtimeAlarm {get;set;}=true;
+    public int FirstBedtimeAlarm {get;set;}=2200;
+    public int SecondBedtimeAlarm {get;set;}=2400;
+    public int FinalBedtimeAlarm {get;set;}=2500;
 }
 
 public sealed class IngameAgent
@@ -30,6 +34,12 @@ public sealed class IngameAgent
     private string run="";
     private DateTime stopAt;
     private bool stopping;
+    private string pendingBedtimeGoal="";
+    private int pendingBedtimeLevel;
+    private int bedtimeDate=-1;
+    private int bedtimeAlarmLevel;
+    private string activeGoalText="";
+    private string alarmOriginalGoal="";
     public AgentUiConfig Config {get;}
     public bool Ready {get;private set;}
     public bool Busy => run!="";
@@ -42,6 +52,11 @@ public sealed class IngameAgent
     {
         this.helper=helper;this.monitor=monitor;this.executor=executor;
         Config=helper.ReadConfig<AgentUiConfig>();
+        if(Config.FirstBedtimeAlarm<1800 || Config.FinalBedtimeAlarm>2500
+            || Config.FirstBedtimeAlarm>=Config.SecondBedtimeAlarm || Config.SecondBedtimeAlarm>=Config.FinalBedtimeAlarm) {
+            Config.FirstBedtimeAlarm=2200;Config.SecondBedtimeAlarm=2400;Config.FinalBedtimeAlarm=2500;
+            helper.WriteConfig(Config);
+        }
         Directory.CreateDirectory(Path.Combine(helper.DirectoryPath,"logs"));
         logPath=Path.Combine(helper.DirectoryPath,"logs","ingame-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".txt");
     }
@@ -129,20 +144,82 @@ public sealed class IngameAgent
         if(host==null || host.HasExited) throw new IOException("서버가 연결되지 않았습니다.");
         host.StandardInput.WriteLine(JsonSerializer.Serialize(message));host.StandardInput.Flush();
     }
-    public bool Submit(string goal)
+    private bool StartGoal(string goal,bool remember,bool automatic)
     {
         if(Busy || !Ready || !Context.IsWorldReady || Game1.player.UsingTool || !Game1.player.CanMove) {
             Status="서버 연결과 캐릭터의 이동 가능한 상태를 확인하세요.";return false;
         }
         goal=goal.Trim();
         if(goal.Length==0 || goal.Length>4000 || goal.Contains("[SLEEP_VERIFIED]")) {Status="목표를 1~4000자로 입력하세요. 이전 특수 토큰은 지원하지 않습니다.";return false;}
-        LastGoal=goal;Result="실행 중";run=Guid.NewGuid().ToString("N");stopping=false;
+        if(remember) LastGoal=goal;
+        activeGoalText=goal;Result=automatic?"시간 알람에 따라 AI가 주변 상황을 확인하고 판단 중입니다.":"실행 중";
+        run=Guid.NewGuid().ToString("N");stopping=false;
         executor.BeginUiRun(run);
         try {Send(new {type="start",id=run,goal});Status="목표 접수 중";Record("목표: "+goal);return true;}
         catch(Exception ex) {Shutdown();Status=ex.Message;Record(Status);return false;}
     }
+    public bool Submit(string goal) => StartGoal(goal,true,false);
+
+    private int CurrentBedtimeLevel(int time)
+    {
+        if(time>=Config.FinalBedtimeAlarm) return 3;
+        if(time>=Config.SecondBedtimeAlarm) return 2;
+        if(time>=Config.FirstBedtimeAlarm) return 1;
+        return 0;
+    }
+    private string BedtimeGoal(int level)
+    {
+        string handling=level==1
+            ?"The current atomic gameplay action was allowed to finish before this alarm interrupted the goal."
+            :"The active goal and gameplay action were forcibly interrupted for this alarm.";
+        var tile=Game1.player.Tile;
+        return "AUTOMATIC TIME DECISION ALARM\n"
+            +"Alarm level="+level+", current game time="+Game1.timeOfDay+". "+handling+"\n"
+            +"Snapshot: location="+(Game1.currentLocation?.Name??"Unknown")+", tile=("+(int)tile.X+","+(int)tile.Y+")"
+            +", energy="+(int)Game1.player.Stamina+"/"+(int)Game1.player.MaxStamina+".\n"
+            +"Interrupted original goal: "+(string.IsNullOrWhiteSpace(alarmOriginalGoal)?"none":alarmOriginalGoal)+"\n"
+            +"First call get_surroundings and assess_daily_status. Then use the observed surroundings, route, remaining energy, time and unfinished work to decide whether to continue useful work or return home and sleep. "
+            +"Returning home is NOT mandatory and no code has chosen it for you. Make and execute the decision yourself, and report the reason.";
+    }
+    private void InterruptForBedtimeAlarm()
+    {
+        if(!Busy || stopping) return;
+        executor.StopUiRun("TIME_ALARM");stopping=true;stopAt=DateTime.UtcNow;
+        Status="시간 알람 · 기존 작업 중단 후 AI 판단 대기";
+        try {Send(new {type="cancel",id=run});} catch(Exception ex) {Record(ex.Message);Shutdown();}
+    }
+    private void TryStartPendingBedtime()
+    {
+        if(string.IsNullOrWhiteSpace(pendingBedtimeGoal) || stopping || !Context.IsWorldReady) return;
+        if(Busy) {
+            if(pendingBedtimeLevel==1 && !executor.HasActiveGameplayAction) InterruptForBedtimeAlarm();
+            return;
+        }
+        if(Game1.activeClickableMenu!=null) return; // Never dismiss a profession, save, or held-item menu.
+        if(Game1.player.UsingTool || !Game1.player.CanMove) return;
+        string goal=pendingBedtimeGoal;pendingBedtimeGoal="";pendingBedtimeLevel=0;
+        StartGoal(goal,false,true);
+    }
+    public void CheckBedtimeAlarm()
+    {
+        if(!Config.EnableAutomaticBedtimeAlarm || !Context.IsWorldReady) return;
+        int today=(int)Game1.stats.DaysPlayed;
+        if(bedtimeDate!=today) {bedtimeDate=today;bedtimeAlarmLevel=0;pendingBedtimeGoal="";pendingBedtimeLevel=0;alarmOriginalGoal="";}
+        int level=CurrentBedtimeLevel(Game1.timeOfDay);
+        if(level<=bedtimeAlarmLevel) return;
+        if(Busy && string.IsNullOrWhiteSpace(alarmOriginalGoal)) alarmOriginalGoal=activeGoalText;
+        bedtimeAlarmLevel=level;pendingBedtimeLevel=level;pendingBedtimeGoal=BedtimeGoal(level);
+        Game1.addHUDMessage(new HUDMessage("시간 알람: AI가 계속 작업할지 귀가할지 판단합니다."));
+        if(Busy && level>=2) InterruptForBedtimeAlarm();
+        TryStartPendingBedtime();
+    }
+    public void ResetBedtimeAlarm()
+    {
+        bedtimeDate=-1;bedtimeAlarmLevel=0;pendingBedtimeGoal="";pendingBedtimeLevel=0;alarmOriginalGoal="";
+    }
     public void Cancel()
     {
+        executor.SuspendPendingTreeResume();
         if(!Busy || stopping) return;
         executor.StopUiRun();stopping=true;stopAt=DateTime.UtcNow;
         Status="입력 차단됨 · 작업 종료 대기 중";Result="사용자가 취소했습니다. 이미 바뀐 게임 상태는 유지됩니다.";
@@ -162,10 +239,11 @@ public sealed class IngameAgent
                 if(id!=run || run=="") continue;
                 if(type=="done" || type=="rejected") {
                     executor.StopUiRun();run="";stopping=false;
+                    activeGoalText="";
                     Status="작업 종료 · 새 목표를 입력할 수 있습니다";
                     if(Result=="실행 중") Result="작업이 종료되었습니다: "+text;
                     Result=AddSnapshotToBareCompletion(Result);
-                    PostResultToChat(Result);
+                    if(string.IsNullOrWhiteSpace(pendingBedtimeGoal)) PostResultToChat(Result);
                     Record(text);continue;
                 }
                 if(type=="started") Status="AI 시작 중";
@@ -183,10 +261,18 @@ public sealed class IngameAgent
         }
         if(host!=null && host.HasExited) {Shutdown();Status="서버 종료됨 · 명령창에서 재연결하세요";}
         if(stopping && (DateTime.UtcNow-stopAt).TotalSeconds>10) {Shutdown();Status="작업 종료 지연으로 서버 정리됨 · 재연결 필요";}
+        if(host==null && !string.IsNullOrWhiteSpace(pendingBedtimeGoal)) StartHost();
+        TryStartPendingBedtime();
+        if(!Busy && Ready && Context.IsWorldReady && Game1.activeClickableMenu==null
+            && !Game1.eventUp && !Game1.player.UsingTool && Game1.player.CanMove
+            && string.IsNullOrWhiteSpace(pendingBedtimeGoal)) {
+            string resume=executor.GetPendingTreeGoal();
+            if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+        }
     }
     public void Shutdown()
     {
-        executor.StopUiRun();++epoch;Ready=false;run="";stopping=false;CloseHost();
+        executor.StopUiRun();++epoch;Ready=false;run="";stopping=false;activeGoalText="";CloseHost();
     }
     public void CloseHost()
     {

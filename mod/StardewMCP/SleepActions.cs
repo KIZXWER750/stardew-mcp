@@ -57,25 +57,30 @@ public partial class CommandExecutor
             sleepApproach = null;
             sleepEntered = false;
             sleepStarted = DateTime.UtcNow;
+            nextSleepInput=default;sleepTransitionError="";morningReady=false;morningInputAttempts=0;
         }
 
         if (sleepStartDate == null)
             return SleepReply(c, false, "BLOCKED: sleep task not initialized.");
 
+        UpdateSleepTransition();
+        if(sleepTransitionError!="") return SleepReply(c,false,"BLOCKED: "+sleepTransitionError);
+
         if (sleepAnswered && SleepDate() != sleepStartDate &&
             Game1.timeOfDay >= 600 && Game1.timeOfDay < 1200 &&
             Game1.currentLocation is FarmHouse &&
-            Game1.activeClickableMenu == null && Game1.player.CanMove)
+            Game1.activeClickableMenu == null && Game1.player.CanMove && morningReady)
         {
             ClearMovementState();
+            sleepAnswered=false;
             return SleepReply(c, true, "SLEEP_VERIFIED: next morning confirmed.");
         }
 
-        if ((DateTime.UtcNow - sleepStarted).TotalSeconds > 90)
+        if ((DateTime.UtcNow - sleepStarted).TotalSeconds > 180)
         {
             ClearMovementState();
             return SleepReply(c, false,
-                "BLOCKED: 90 seconds elapsed. Check any overnight menu.");
+                "BLOCKED: 180 seconds elapsed. Check any overnight menu.");
         }
 
         if (sleepAnswered)

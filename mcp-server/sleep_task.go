@@ -21,7 +21,7 @@ func (a *StardewAgent) sleepUntilMorning() (string, error) {
 		}
 	}()
 
-	deadline := time.Now().Add(100 * time.Second)
+	deadline := time.Now().Add(190 * time.Second)
 	first := true
 
 	for time.Now().Before(deadline) {
