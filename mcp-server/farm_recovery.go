@@ -28,6 +28,7 @@ func farmKey(op string, p PlotParams) string {
 	}
 	seed, policy := "", ""
 	maxTrees, preserveYoungTrees := 0, false
+	maxObstacles := 0
 	if op == "plant" {
 		seed = strings.TrimPrefix(p.SeedItemID, "(O)")
 		policy = p.ExistingCropPolicy
@@ -42,7 +43,13 @@ func farmKey(op string, p PlotParams) string {
 		}
 		preserveYoungTrees = p.PreserveYoungTrees
 	}
-	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, preserveYoungTrees})
+	if op == "travel" {
+		maxObstacles = p.MaxObstacles
+		if maxObstacles == 0 {
+			maxObstacles = 8
+		}
+	}
+	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, preserveYoungTrees, maxObstacles})
 	return string(b)
 }
 

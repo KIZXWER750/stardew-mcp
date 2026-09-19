@@ -102,6 +102,54 @@ public class Pathfinder
         return null;
     }
 
+    /// <summary>
+    /// Find a weighted cardinal path which may enter explicitly approved
+    /// removable-obstacle tiles. The callback returns the extra clearing cost,
+    /// or null when the blocked tile must remain protected. Normal walkable
+    /// tiles always cost one and the callback can never make buildings,
+    /// furniture, crops, or other unclassified collisions traversable.
+    /// </summary>
+    public List<Vector2>? FindPathWithClearingCosts(GameLocation location, Vector2 start, Vector2 goal,
+        Func<int,int,int?> clearingCost)
+    {
+        if(location==null) return null;
+        if(location.Map==null || location.Map.Layers.Count==0) return null;
+        var layer=location.Map.Layers[0];
+        int gx=(int)goal.X,gy=(int)goal.Y;
+        if(gx<0 || gy<0 || gx>=layer.LayerWidth || gy>=layer.LayerHeight) return null;
+        if(start==goal) return new List<Vector2>();
+
+        var open=new PriorityQueue<Vector2,float>();
+        var cameFrom=new Dictionary<Vector2,Vector2>();
+        var score=new Dictionary<Vector2,float>{{start,0}};
+        open.Enqueue(start,Heuristic(start,goal));
+        int iterations=0;
+        while(open.Count>0 && iterations++<MaxIterations) {
+            var current=open.Dequeue();
+            if(current==goal) return ReconstructPath(cameFrom,current);
+            float currentScore=score[current];
+            foreach(var neighbor in GetNeighbors(current)) {
+                int nx=(int)neighbor.X,ny=(int)neighbor.Y;
+                if(nx<0 || ny<0 || nx>=layer.LayerWidth || ny>=layer.LayerHeight) continue;
+                if(!CanTraverseFarmhousePorch(location,
+                    new Point((int)current.X,(int)current.Y),new Point(nx,ny))) continue;
+                int stepCost=1;
+                if(!IsTileWalkable(location,nx,ny)) {
+                    int? extra=clearingCost(nx,ny);
+                    if(!extra.HasValue || extra.Value<1) continue;
+                    stepCost+=extra.Value;
+                }
+                float tentative=currentScore+stepCost;
+                if(score.TryGetValue(neighbor,out float known) && tentative>=known) continue;
+                cameFrom[neighbor]=current;score[neighbor]=tentative;
+                open.Enqueue(neighbor,tentative+Heuristic(neighbor,goal));
+            }
+        }
+        return null;
+    }
+
+    public bool IsWalkable(GameLocation location,int x,int y) => IsTileWalkable(location,x,y);
+
     /// <summary>Check if a tile is walkable for the player.</summary>
     private static bool IsFarmhousePorchTile(int x, int y)
         => (y == 15 && x >= 59 && x <= 66) ||

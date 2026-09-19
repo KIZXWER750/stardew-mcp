@@ -64,7 +64,7 @@ func TestOpenAIActualToolRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.tools) != 48 {
+	if len(s.tools) != 49 {
 		t.Fatalf("tool count = %d", len(s.tools))
 	}
 	if _, ok := s.tools["open_pierre_shop"]; !ok {

@@ -17,6 +17,10 @@ Plan the user's requested stages, execute sequentially, track verified results a
 clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_plot consumes inventory seeds;
 water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes selected ordinary
 wild trees through their stumps, then detects and collects nearby loose drops. Functions handle movement and verification.
+On Farm, if ordinary move_to cannot reach a destination because of natural debris, use move_with_clearing.
+It may clear only grass, weeds, twigs, small stones, young ordinary trees, and ordinary tree stumps selected by
+its weighted route. It never clears mature trees, fruit trees, crops, HoeDirt, buildings, chests, machines,
+furniture, fences, resource clumps, or other placed facilities. Never substitute it for a protected-path refusal.
 Never replay the entire chain or select a new area merely because all requested stages succeeded.
 Finish with a concise report and a standalone GOAL COMPLETE on the last line only when verified.
 Completed identical calls in this user goal return historical results without re-execution.
@@ -58,6 +62,22 @@ type PlotParams struct {
 	TargetFilter       string `json:"target_filter,omitempty" jsonschema:"ALL_HOED_SOIL default or CROPS_ONLY for water"`
 	MaxTrees           int    `json:"max_trees,omitempty" jsonschema:"For remove_wild_trees only: maximum selected ordinary trees/stumps, default 3, range 1..12"`
 	PreserveYoungTrees bool   `json:"preserve_young_trees,omitempty" jsonschema:"For remove_wild_trees only: preserve non-mature ordinary wild trees; default false, so all growth stages are removed"`
+	MaxObstacles       int    `json:"max_obstacles,omitempty" jsonschema:"For move_with_clearing only: maximum natural obstacles removed; default 8, range 1..16"`
+}
+
+type ClearingMoveParams struct {
+	RequestID     string `json:"request_id,omitempty" jsonschema:"Optional idempotency key; reuse only for the identical request in this game session"`
+	Location      string `json:"location" jsonschema:"Current map; this version requires Farm"`
+	X             int    `json:"x" jsonschema:"Observed destination tile X; never ask the user for coordinates"`
+	Y             int    `json:"y" jsonschema:"Observed destination tile Y; never ask the user for coordinates"`
+	MinimumEnergy int    `json:"minimum_energy,omitempty" jsonschema:"Energy reserve; default and minimum 20"`
+	StopTime      int    `json:"stop_time,omitempty" jsonschema:"Game HHMM deadline; default and latest 2200"`
+	MaxObstacles  int    `json:"max_obstacles,omitempty" jsonschema:"Maximum removable route obstacles; default 8, range 1..16"`
+}
+
+func (p ClearingMoveParams) plot() PlotParams {
+	return PlotParams{RequestID: p.RequestID, Location: p.Location, X: p.X, Y: p.Y, Width: 1, Height: 1,
+		MinimumEnergy: p.MinimumEnergy, StopTime: p.StopTime, MaxObstacles: p.MaxObstacles}
 }
 
 type CandidateParams struct {
@@ -124,6 +144,9 @@ func (p PlotParams) validate() error {
 	if p.MaxTrees < 0 || p.MaxTrees > 12 {
 		return fmt.Errorf("max_trees must be 1..12 when provided")
 	}
+	if p.MaxObstacles < 0 || p.MaxObstacles > 16 {
+		return fmt.Errorf("max_obstacles must be 1..16 when provided")
+	}
 	return nil
 }
 
@@ -144,9 +167,13 @@ func (p PlotParams) values(op string) map[string]interface{} {
 	if maxTrees == 0 {
 		maxTrees = 3
 	}
+	maxObstacles := p.MaxObstacles
+	if maxObstacles == 0 {
+		maxObstacles = 8
+	}
 	return map[string]interface{}{"location": p.Location, "x": p.X, "y": p.Y, "width": p.Width, "height": p.Height,
 		"request_id": p.RequestID, "seed_item_id": p.SeedItemID, "existing_crop_policy": p.ExistingCropPolicy, "operation": op, "minimum_energy": energy, "stop_time": deadline, "target_filter": filter,
-		"max_trees": maxTrees, "preserve_young_trees": p.PreserveYoungTrees}
+		"max_trees": maxTrees, "preserve_young_trees": p.PreserveYoungTrees, "max_obstacles": maxObstacles}
 }
 
 type farmResult struct {
