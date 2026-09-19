@@ -8,7 +8,7 @@ func TestPlotValidationAndDefaults(t *testing.T) {
 		t.Fatal(e)
 	}
 	v := p.values("prepare")
-	if v["minimum_energy"] != 20 || v["stop_time"] != 2200 {
+	if v["minimum_energy"] != 20 || v["stop_time"] != 2200 || v["max_trees"] != 3 {
 		t.Fatal("unsafe defaults")
 	}
 	for _, bad := range []PlotParams{
@@ -17,10 +17,25 @@ func TestPlotValidationAndDefaults(t *testing.T) {
 		{Location: "Farm", Width: 0, Height: 1},
 		{Location: "Farm", X: -1, Width: 1, Height: 1},
 		{Location: "Farm", Width: 1, Height: 1, StopTime: 2165},
+		{Location: "Farm", Width: 1, Height: 1, MaxTrees: 13},
 	} {
 		if bad.validate() == nil {
 			t.Fatalf("accepted invalid area: %+v", bad)
 		}
+	}
+}
+
+func TestTreeRequestIdentityIncludesSafetyScope(t *testing.T) {
+	p := PlotParams{Location: "Farm", X: 1, Y: 2, Width: 5, Height: 5, MaxTrees: 3}
+	q := p
+	q.MaxTrees = 4
+	if farmKey("trees", p) == farmKey("trees", q) {
+		t.Fatal("different tree limits shared an idempotency key")
+	}
+	q = p
+	q.IncludeSaplings = true
+	if farmKey("trees", p) == farmKey("trees", q) {
+		t.Fatal("sapling authorization missing from idempotency key")
 	}
 }
 

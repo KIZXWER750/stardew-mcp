@@ -12,6 +12,9 @@ import (
 const lifeToolRules = `
 DAILY LIFE AND RECOVERY:
 Use assess_daily_status before deciding whether to continue work, recover, return home, or sleep.
+For multi-stage or long-running goals, call manage_daily_life before each expensive stage and after LOW_ENERGY or
+TIME_LIMIT. It may eat only within the explicit value/reserve/protected-item policy, or return home and sleep only
+when those actions are authorized by the user's goal. After verified food recovery, resume only the unfinished stage.
 Use find_recovery_options and find_food_options before consuming anything. Food use requires the exact observed
 slot and item ID, and a reserve quantity. Never consume a quest item, requested item, last specimen, valuable crop,
 or user-protected item merely because it is edible. consume_food performs one normal, verified consumption only.
@@ -33,6 +36,32 @@ type ConsumeFoodParams struct {
 type BedtimeParams struct {
 	TargetBedTime int `json:"target_bed_time,omitempty" jsonschema:"Desired in-bed game time HHMM; default 2400, range 1800..2500"`
 	BufferMinutes int `json:"buffer_minutes,omitempty" jsonschema:"Extra safety margin in game minutes; default 30, range 10..180"`
+}
+
+type DailyLifeParams struct {
+	MinimumEnergyPercent int      `json:"minimum_energy_percent,omitempty" jsonschema:"Recover at or below this energy percentage; default 20, range 5..80"`
+	ReturnHomeTime       int      `json:"return_home_time,omitempty" jsonschema:"Game HHMM to stop work and return; default 2200, range 1800..2500"`
+	AllowFood            bool     `json:"allow_food,omitempty" jsonschema:"True only when the user authorized consuming safe inventory food"`
+	AllowReturnHome      bool     `json:"allow_return_home,omitempty" jsonschema:"True only when the user authorized ending or interrupting work to return home"`
+	AllowSleep           bool     `json:"allow_sleep,omitempty" jsonschema:"True only when the user authorized ending the day; implies returning home"`
+	MaximumFoodSellPrice int      `json:"maximum_food_sell_price,omitempty" jsonschema:"Maximum unit sale value allowed for automatic food selection; default 50, range 0..10000"`
+	ReserveQuantity      int      `json:"reserve_quantity,omitempty" jsonschema:"Minimum total quantity of the chosen food item to keep; default 1"`
+	MaximumFoodItems     int      `json:"maximum_food_items,omitempty" jsonschema:"Maximum items consumed by this call; default 2, range 1..5"`
+	ProtectedItemIDs     []string `json:"protected_item_ids,omitempty" jsonschema:"Qualified item IDs that must never be consumed"`
+}
+
+type observedFood struct {
+	Slot           int    `json:"slot"`
+	ItemID         string `json:"itemId"`
+	Name           string `json:"name"`
+	Stack          int    `json:"stack"`
+	EnergyRecovery *int   `json:"energyRecovery"`
+	HealthRecovery *int   `json:"healthRecovery"`
+	SellPrice      int    `json:"sellPrice"`
+}
+
+type observedFoods struct {
+	Foods []observedFood `json:"foods"`
 }
 
 type lifeReply struct {
@@ -260,6 +289,140 @@ func scheduleBedtime(p BedtimeParams) (string, error) {
 	return fmt.Sprintf(`{"status":%q,"currentTime":%d,"targetBedTime":%d,"routeHops":%d,"estimatedTravelMinutes":%d,"safetyBufferMinutes":%d,"recommendedDeparture":%d,"note":"Estimate only; obstacles and menus can take longer."}`, status, state.Time.TimeOfDay, target, hops, travelEstimate, buffer, minutesHHMM(depart)), nil
 }
 
+func dailyLifeDefaults(p DailyLifeParams) (DailyLifeParams, error) {
+	if p.MinimumEnergyPercent == 0 {
+		p.MinimumEnergyPercent = 20
+	}
+	if p.ReturnHomeTime == 0 {
+		p.ReturnHomeTime = 2200
+	}
+	if p.MaximumFoodSellPrice == 0 {
+		p.MaximumFoodSellPrice = 50
+	}
+	if p.ReserveQuantity == 0 {
+		p.ReserveQuantity = 1
+	}
+	if p.MaximumFoodItems == 0 {
+		p.MaximumFoodItems = 2
+	}
+	if p.MinimumEnergyPercent < 5 || p.MinimumEnergyPercent > 80 || p.ReturnHomeTime < 1800 || p.ReturnHomeTime > 2500 || p.ReturnHomeTime%100 >= 60 ||
+		p.MaximumFoodSellPrice < 0 || p.MaximumFoodSellPrice > 10000 || p.ReserveQuantity < 0 || p.MaximumFoodItems < 1 || p.MaximumFoodItems > 5 {
+		return p, fmt.Errorf("invalid daily-life policy")
+	}
+	return p, nil
+}
+
+func readObservedFoods() (observedFoods, error) {
+	var result observedFoods
+	raw, err := farmReadCommand("life_food_options", nil)
+	if err != nil {
+		return result, err
+	}
+	if strings.HasPrefix(raw, "TASK_BLOCKED:") {
+		return result, fmt.Errorf("%s", raw)
+	}
+	if err = json.Unmarshal([]byte(raw), &result); err != nil {
+		return result, fmt.Errorf("invalid food observation")
+	}
+	return result, nil
+}
+
+func chooseDailyFood(foods []observedFood, p DailyLifeParams) (observedFood, bool) {
+	protected := map[string]bool{}
+	for _, id := range p.ProtectedItemIDs {
+		protected[strings.TrimSpace(id)] = true
+	}
+	var chosen observedFood
+	found := false
+	for _, food := range foods {
+		recovery := 0
+		if food.EnergyRecovery != nil {
+			recovery = *food.EnergyRecovery
+		}
+		if protected[food.ItemID] || recovery <= 0 || food.Stack-1 < p.ReserveQuantity || food.SellPrice > p.MaximumFoodSellPrice {
+			continue
+		}
+		if !found || food.SellPrice < chosen.SellPrice || food.SellPrice == chosen.SellPrice && recovery < *chosen.EnergyRecovery {
+			chosen, found = food, true
+		}
+	}
+	return chosen, found
+}
+
+func (a *StardewAgent) manageDailyLife(input DailyLifeParams) (string, error) {
+	p, err := dailyLifeDefaults(input)
+	if err != nil {
+		return "TASK_BLOCKED: " + err.Error(), nil
+	}
+	state := gameClient.GetState()
+	if state == nil {
+		return "TASK_BLOCKED: game disconnected", nil
+	}
+	steps := []json.RawMessage{}
+	if state.Time.TimeOfDay >= p.ReturnHomeTime {
+		if !p.AllowReturnHome && !p.AllowSleep {
+			return fmt.Sprintf(`{"status":"PAUSED","reason":"RETURN_HOME_REQUIRED_NOT_AUTHORIZED","time":%d,"resumeRequestedWork":false}`, state.Time.TimeOfDay), nil
+		}
+		home, _ := a.returnHome()
+		if strings.HasPrefix(home, "TASK_BLOCKED:") {
+			return home, nil
+		}
+		steps = append(steps, json.RawMessage(home))
+		if p.AllowSleep {
+			slept, _ := a.sleepUntilMorning()
+			if strings.HasPrefix(slept, "TASK_BLOCKED:") {
+				return slept, nil
+			}
+			steps = append(steps, json.RawMessage(slept))
+			a.requestMu.Lock()
+			a.farmDayEpoch++
+			a.requestMu.Unlock()
+			body, _ := json.Marshal(map[string]interface{}{"status": "COMPLETED", "action": "RETURNED_HOME_AND_SLEPT", "steps": steps, "resumeRequestedWork": false})
+			return string(body), nil
+		}
+		body, _ := json.Marshal(map[string]interface{}{"status": "COMPLETED", "action": "RETURNED_HOME", "steps": steps, "resumeRequestedWork": false})
+		return string(body), nil
+	}
+	energyPercent := func(s *GameState) float64 {
+		if s == nil || s.Player.MaxEnergy <= 0 {
+			return 0
+		}
+		return s.Player.Energy / float64(s.Player.MaxEnergy) * 100
+	}
+	if energyPercent(state) > float64(p.MinimumEnergyPercent) {
+		return fmt.Sprintf(`{"status":"COMPLETED","action":"NO_ACTION_REQUIRED","time":%d,"energy":%.1f,"energyPercent":%.1f,"resumeRequestedWork":true}`, state.Time.TimeOfDay, state.Player.Energy, energyPercent(state)), nil
+	}
+	if !p.AllowFood {
+		return fmt.Sprintf(`{"status":"PAUSED","reason":"LOW_ENERGY_FOOD_NOT_AUTHORIZED","energy":%.1f,"energyPercent":%.1f,"resumeRequestedWork":false}`, state.Player.Energy, energyPercent(state)), nil
+	}
+	for used := 0; used < p.MaximumFoodItems; used++ {
+		foods, readErr := readObservedFoods()
+		if readErr != nil {
+			return "TASK_BLOCKED: " + readErr.Error(), nil
+		}
+		food, ok := chooseDailyFood(foods.Foods, p)
+		if !ok {
+			body, _ := json.Marshal(map[string]interface{}{"status": "PAUSED", "reason": "NO_SAFE_AUTHORIZED_FOOD", "steps": steps, "resumeRequestedWork": false})
+			return string(body), nil
+		}
+		eaten, _ := a.consumeFood(ConsumeFoodParams{Slot: food.Slot, ItemID: food.ItemID, ReserveQuantity: p.ReserveQuantity})
+		if strings.HasPrefix(eaten, "TASK_BLOCKED:") {
+			return eaten, nil
+		}
+		steps = append(steps, json.RawMessage(eaten))
+		state = gameClient.GetState()
+		if energyPercent(state) > float64(p.MinimumEnergyPercent) {
+			a.requestMu.Lock()
+			a.farmLifeEpoch++
+			a.requestMu.Unlock()
+			body, _ := json.Marshal(map[string]interface{}{"status": "COMPLETED", "action": "ATE_AND_RECOVERED", "itemsConsumed": used + 1, "energy": state.Player.Energy, "energyPercent": energyPercent(state), "steps": steps, "resumeRequestedWork": true})
+			return string(body), nil
+		}
+	}
+	body, _ := json.Marshal(map[string]interface{}{"status": "PAUSED", "reason": "ENERGY_STILL_LOW_AFTER_POLICY_LIMIT", "steps": steps, "resumeRequestedWork": false})
+	return string(body), nil
+}
+
 func (a *StardewAgent) defineLifeTools() []copilot.Tool {
 	return []copilot.Tool{
 		copilot.DefineTool("assess_daily_status", "Read current time, energy, health, location and conservative next-action advice. No game action.", func(p LifeEmptyParams, inv copilot.ToolInvocation) (string, error) {
@@ -282,5 +445,6 @@ func (a *StardewAgent) defineLifeTools() []copilot.Tool {
 		copilot.DefineTool("return_home", "Follow observed route exits with normal movement until FarmHouse is verified. No teleporting and no sleeping.", func(p LifeEmptyParams, inv copilot.ToolInvocation) (string, error) { return a.returnHome() }),
 		copilot.DefineTool("schedule_bedtime", "Estimate a conservative departure time from the observed route hop count. Read-only; the estimate is not proof of travel duration.", func(p BedtimeParams, inv copilot.ToolInvocation) (string, error) { return scheduleBedtime(p) }),
 		copilot.DefineTool("sleep_until_morning", "Inside FarmHouse, find the actual player bed, approach from its left or right side, enter it, accept only the Sleep confirmation, and verify the next morning.", func(p LifeEmptyParams, inv copilot.ToolInvocation) (string, error) { return a.sleepUntilMorning() }),
+		copilot.DefineTool("manage_daily_life", "Apply one explicit daily-life checkpoint. If energy is low, it may select and consume bounded low-value observed food under reserve/protection limits. At the configured time it may return home and optionally sleep. Call before long stages and after LOW_ENERGY/TIME_LIMIT; resume work only when resumeRequestedWork=true. Food and sleep require explicit authorization arguments.", func(p DailyLifeParams, inv copilot.ToolInvocation) (string, error) { return a.manageDailyLife(p) }),
 	}
 }

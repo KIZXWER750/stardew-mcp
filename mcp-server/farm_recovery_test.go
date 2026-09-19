@@ -117,3 +117,42 @@ func TestRecoveryDoesNotAuthorizeProtectedDestruction(t *testing.T) {
 		}
 	}
 }
+
+func TestLifeRecoveryHintsRequireUserScope(t *testing.T) {
+	for _, reason := range []string{"LOW_ENERGY", "TIME_LIMIT"} {
+		hint := recoveryHint(farmResult{Status: "PAUSED", Reason: reason}, "prepare")
+		if !hint.Candidate || !hint.RequiresUserScope || !strings.Contains(hint.NextSteps, "manage_daily_life") {
+			t.Fatalf("missing life recovery hint for %s: %+v", reason, hint)
+		}
+	}
+}
+
+func TestVerifiedLifeRecoveryUnlocksOnlyMatchingPause(t *testing.T) {
+	a := &StardewAgent{}
+	if _, err := a.beginFarmAttempt("low-energy"); err != nil {
+		t.Fatal(err)
+	}
+	a.endFarmAttempt("low-energy", "PAUSED", `{"status":"PAUSED","reason":"LOW_ENERGY"}`)
+	if _, err := a.beginFarmAttempt("low-energy"); err == nil {
+		t.Fatal("low-energy task resumed without recovery")
+	}
+	a.farmLifeEpoch++
+	if _, err := a.beginFarmAttempt("low-energy"); err != nil {
+		t.Fatal("verified food recovery did not unlock task", err)
+	}
+	a.endFarmAttempt("low-energy", "COMPLETED", `{"status":"COMPLETED"}`)
+
+	b := &StardewAgent{}
+	if _, err := b.beginFarmAttempt("late"); err != nil {
+		t.Fatal(err)
+	}
+	b.endFarmAttempt("late", "PAUSED", `{"status":"PAUSED","reason":"TIME_LIMIT"}`)
+	b.farmLifeEpoch++
+	if _, err := b.beginFarmAttempt("late"); err == nil {
+		t.Fatal("food incorrectly unlocked a time pause")
+	}
+	b.farmDayEpoch++
+	if _, err := b.beginFarmAttempt("late"); err != nil {
+		t.Fatal("verified next day did not unlock task", err)
+	}
+}

@@ -8,11 +8,13 @@ import (
 
 type farmAttempt struct {
 	Reason      string
-	RefillEpoch int
 	Attempts    int
 	Epoch       int
 	Status      string
 	Body        string
+	RefillEpoch int
+	LifeEpoch   int
+	DayEpoch    int
 }
 
 // Transport IDs and budgets do not change the identity of a requested action.
@@ -25,6 +27,7 @@ func farmKey(op string, p PlotParams) string {
 		filter = "ALL_HOED_SOIL"
 	}
 	seed, policy := "", ""
+	maxTrees, includeSaplings := 0, false
 	if op == "plant" {
 		seed = strings.TrimPrefix(p.SeedItemID, "(O)")
 		policy = p.ExistingCropPolicy
@@ -32,7 +35,14 @@ func farmKey(op string, p PlotParams) string {
 			policy = "PRESERVE_AND_REPORT"
 		}
 	}
-	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter})
+	if op == "trees" {
+		maxTrees = p.MaxTrees
+		if maxTrees == 0 {
+			maxTrees = 3
+		}
+		includeSaplings = p.IncludeSaplings
+	}
+	b, _ := json.Marshal([]interface{}{op, p.Location, p.X, p.Y, p.Width, p.Height, seed, policy, filter, maxTrees, includeSaplings})
 	return string(b)
 }
 
@@ -48,13 +58,21 @@ func (a *StardewAgent) beginFarmAttempt(key string) (string, error) {
 			return item.Body + "\nALREADY_COMPLETED_THIS_GOAL: historical verified result; no new action was sent. Continue only unfinished stages, or end the goal.", nil
 		}
 		waterPause := item.Status == "PAUSED" && item.Reason == "NO_WATER" && strings.HasPrefix(key, `["water",`)
-		if item.Status != "BLOCKED" && !waterPause {
+		energyPause := item.Status == "PAUSED" && item.Reason == "LOW_ENERGY"
+		timePause := item.Status == "PAUSED" && item.Reason == "TIME_LIMIT"
+		if item.Status != "BLOCKED" && !waterPause && !energyPause && !timePause {
 			return "", fmt.Errorf("PREVIOUS_%s: do not repeat cancelled, paused, active or uncertain work; report the existing result", item.Status)
 		}
 		if waterPause && a.farmRefillEpoch <= item.RefillEpoch {
 			return "", fmt.Errorf("REFILL_REQUIRED: verify a watering-can refill before resuming the original plot")
 		}
-		if item.Epoch >= a.farmEpoch {
+		if energyPause && a.farmLifeEpoch <= item.LifeEpoch {
+			return "", fmt.Errorf("ENERGY_RECOVERY_REQUIRED: verify food recovery before resuming this operation")
+		}
+		if timePause && a.farmDayEpoch <= item.DayEpoch {
+			return "", fmt.Errorf("NEXT_DAY_REQUIRED: verify sleep and the next morning before resuming this operation")
+		}
+		if !energyPause && !timePause && item.Epoch >= a.farmEpoch {
 			return "", fmt.Errorf("UNCHANGED_FAILURE: inspect and complete an authorized prerequisite repair before retrying this operation")
 		}
 		if item.Attempts >= 3 {
@@ -68,6 +86,8 @@ func (a *StardewAgent) beginFarmAttempt(key string) (string, error) {
 	item.Attempts++
 	item.Epoch = a.farmEpoch
 	item.RefillEpoch = a.farmRefillEpoch
+	item.LifeEpoch = a.farmLifeEpoch
+	item.DayEpoch = a.farmDayEpoch
 	item.Status = "RUNNING"
 	a.farmLedger[key] = item
 	return "", nil
@@ -93,6 +113,8 @@ func (a *StardewAgent) endFarmAttempt(key, status, body string) {
 	item.Body = body
 	item.Epoch = a.farmEpoch
 	item.RefillEpoch = a.farmRefillEpoch
+	item.LifeEpoch = a.farmLifeEpoch
+	item.DayEpoch = a.farmDayEpoch
 	a.farmLedger[key] = item
 }
 
@@ -112,6 +134,12 @@ type farmRecovery struct {
 
 func recoveryHint(result farmResult, op string) farmRecovery {
 	hint := farmRecovery{RequiresUserScope: true, NextSteps: "Report the unresolved condition. Do not blindly repeat or remove protected objects."}
+	if result.Status == "PAUSED" && result.Reason == "LOW_ENERGY" {
+		return farmRecovery{Candidate: true, RequiresUserScope: true, NextSteps: "If autonomous recovery is authorized, call manage_daily_life with allow_food=true and the user's food value/reserve protections. Resume only this unfinished operation after verified recovery. Otherwise report the pause."}
+	}
+	if result.Status == "PAUSED" && result.Reason == "TIME_LIMIT" {
+		return farmRecovery{Candidate: true, RequiresUserScope: true, NextSteps: "If ending the day is authorized, call manage_daily_life with allow_sleep=true. Preserve this operation and resume its unfinished state on a later user goal; do not restart completed stages tonight."}
+	}
 	if op == "water" && result.Status == "PAUSED" && result.Reason == "NO_WATER" {
 		return farmRecovery{Candidate: true, RequiresUserScope: true, NextSteps: "Keep original plot and filter. If refilling is not forbidden, find_water_sources, refill_watering_can at an observed reachable source, then water_plot SAME plot/filter. Wet tiles are skipped. Do not restart other completed stages. Stop if source/refill cannot be verified."}
 	}

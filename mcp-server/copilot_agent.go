@@ -270,6 +270,8 @@ type StardewAgent struct {
 	farmEpoch           int
 	farmActions         int
 	farmRefillEpoch     int
+	farmLifeEpoch       int
+	farmDayEpoch        int
 	farmWaterGeneration int
 	verifyPlanting      bool
 	verifyWatering      bool
@@ -311,6 +313,8 @@ func (a *StardewAgent) StartSession(initialGoal string) error {
 	a.farmLedger = make(map[string]farmAttempt)
 	a.farmEpoch = 0
 	a.farmRefillEpoch = 0
+	a.farmLifeEpoch = 0
+	a.farmDayEpoch = 0
 	a.farmWaterGeneration = 0
 	a.farmActions = 0
 	a.requestMu.Unlock()
@@ -878,6 +882,10 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
+	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove up to max_trees ordinary wild trees or existing ordinary tree stumps inside one explicit Farm rectangle. Mature trees are selected by default; include_saplings must be explicitly true to remove younger trees. Uses the Axe from cardinal approaches until each selected terrain feature, including its stump, is verified absent. Always preserves fruit trees, bushes, crops, buildings, machines, placed objects and resource clumps. Does not collect dropped items.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("trees", p)
+		})
 	analyzeFarmTool := copilot.DefineTool("analyze_farm_work", "Read-only preflight for a Farm rectangle and operation: eligible/already satisfied/blocked tiles, tools, seed count, water and energy reserve. Analysis never changes the world; execution rechecks.",
 		func(p AnalyzeParams, inv copilot.ToolInvocation) (string, error) { return a.analyzeFarm(p) })
 	waterSourcesTool := copilot.DefineTool("find_water_sources", "Read-only search for reachable watering-can refill source candidates around the current player on Farm. Returns source coordinates and approach path lengths. No movement.",
@@ -951,10 +959,10 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
-			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning",
+			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_storage", "open_storage", "take_storage_crop", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
-			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot",
+			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot", "remove_wild_trees",
 			"move_to", "get_surroundings", "interact", "use_tool",
 			"use_tool_repeat", "face_direction", "select_item", "switch_tool",
 			"eat_item", "enter_door", "exit_house", "find_best_target", "clear_target",
@@ -965,7 +973,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectTool, storageOpenTool, storageTakeTool, storageCloseTool,
-			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool,
+			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool, removeWildTreesTool,
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,
 			useToolRepeatTool, faceDirectionTool, selectItemTool, switchToolTool,

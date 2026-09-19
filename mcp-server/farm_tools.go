@@ -15,7 +15,8 @@ Choose coordinates from observations, never ask the user to provide tile numbers
 Use find_plot_candidates for NEW plots; for existing crops inspect their observed area.
 Plan the user's requested stages, execute sequentially, track verified results and stop after one completed goal.
 clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_plot consumes inventory seeds;
-water_plot waters eligible soil; harvest_plot harvests mature crops. Functions handle movement and verification.
+water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes only selected ordinary
+wild trees through their stumps. Functions handle movement and verification.
 Never replay the entire chain or select a new area merely because all requested stages succeeded.
 Finish with a concise report and a standalone GOAL COMPLETE on the last line only when verified.
 Completed identical calls in this user goal return historical results without re-execution.
@@ -25,7 +26,8 @@ then retry plant_plot. For crop-only watering, use CROPS_ONLY instead of waterin
 Select smaller subrectangles when appropriate, preserving the original requested targets and reporting exclusions.
 Do not replace unfinished targets with a different plot to claim completion. Do not expand beyond user scope.
 Prerequisite repair is allowed only if consistent with the user's goal and prohibitions; explicit no-tilling wins.
-Safe clearing requires user authorization. Preserve existing crops, facilities, trees and soil.
+Safe clearing requires user authorization. Ordinary clearing preserves all trees. remove_wild_trees requires explicit
+tree-removal scope and always preserves fruit trees, bushes, crops, buildings, machines and resource clumps.
 Never blindly repeat unchanged failures. There are at most 3 attempts per identical operation/area and 24 farm jobs per user goal.
 Missing water, seeds, tools, energy, time or uncertain action outcomes must be reported; no unsupported recovery or cheats.
 For recoverable errors fix the cause first; for unsafe/unavailable recovery report TASK_BLOCKED and stop.
@@ -34,8 +36,10 @@ Before new farming work, analyze_farm_work can inspect prerequisites without act
 When water_plot pauses with NO_WATER, remember its original rectangle and filter. Call find_water_sources,
 choose a reachable observed source, refill_watering_can, then repeat water_plot for the SAME original rectangle.
 The new watering job skips wet tiles. Do not restart tilling/planting, expand the plot, or claim watering complete from refill alone.
-Only resume a NO_WATER pause after a verified refill. Other pauses still stop. Respect user prohibitions on leaving the area/refilling.
-These functions do not buy seeds, eat, go home, remove trees, or sleep.
+Only resume a NO_WATER pause after a verified refill. LOW_ENERGY and TIME_LIMIT may be handed to manage_daily_life
+only when the user's goal authorized the corresponding recovery; all other pauses stop. Respect explicit prohibitions.
+Farm-area functions do not buy seeds, eat, go home, or sleep. Use manage_daily_life between long stages and after
+recoverable PAUSED results when the user's goal authorizes food, returning home, or ending the day.
 `
 
 type PlotParams struct {
@@ -43,14 +47,16 @@ type PlotParams struct {
 	SeedItemID         string `json:"seed_item_id,omitempty" jsonschema:"Required for plant_plot: exact inventory seed item ID, e.g. (O)472; never guess"`
 	ExistingCropPolicy string `json:"existing_crop_policy,omitempty" jsonschema:"PRESERVE_AND_REPORT default, or REQUIRE_SAME_CROP"`
 
-	Location      string `json:"location" jsonschema:"The current map; this version requires Farm"`
-	X             int    `json:"x" jsonschema:"Northwest tile X"`
-	Y             int    `json:"y" jsonschema:"Northwest tile Y"`
-	Width         int    `json:"width" jsonschema:"Number of columns"`
-	Height        int    `json:"height" jsonschema:"Number of rows; total area at most 64"`
-	MinimumEnergy int    `json:"minimum_energy,omitempty" jsonschema:"Energy reserve; default and minimum 20"`
-	StopTime      int    `json:"stop_time,omitempty" jsonschema:"Game HHMM deadline; default and latest 2200"`
-	TargetFilter  string `json:"target_filter,omitempty" jsonschema:"ALL_HOED_SOIL default or CROPS_ONLY for water"`
+	Location        string `json:"location" jsonschema:"The current map; this version requires Farm"`
+	X               int    `json:"x" jsonschema:"Northwest tile X"`
+	Y               int    `json:"y" jsonschema:"Northwest tile Y"`
+	Width           int    `json:"width" jsonschema:"Number of columns"`
+	Height          int    `json:"height" jsonschema:"Number of rows; total area at most 64"`
+	MinimumEnergy   int    `json:"minimum_energy,omitempty" jsonschema:"Energy reserve; default and minimum 20"`
+	StopTime        int    `json:"stop_time,omitempty" jsonschema:"Game HHMM deadline; default and latest 2200"`
+	TargetFilter    string `json:"target_filter,omitempty" jsonschema:"ALL_HOED_SOIL default or CROPS_ONLY for water"`
+	MaxTrees        int    `json:"max_trees,omitempty" jsonschema:"For remove_wild_trees only: maximum selected ordinary trees/stumps, default 3, range 1..12"`
+	IncludeSaplings bool   `json:"include_saplings,omitempty" jsonschema:"For remove_wild_trees only: also remove non-mature ordinary saplings; default false"`
 }
 
 type CandidateParams struct {
@@ -114,6 +120,9 @@ func (p PlotParams) validate() error {
 	if p.TargetFilter != "" && p.TargetFilter != "ALL_HOED_SOIL" && p.TargetFilter != "CROPS_ONLY" {
 		return fmt.Errorf("invalid target_filter")
 	}
+	if p.MaxTrees < 0 || p.MaxTrees > 12 {
+		return fmt.Errorf("max_trees must be 1..12 when provided")
+	}
 	return nil
 }
 
@@ -130,8 +139,13 @@ func (p PlotParams) values(op string) map[string]interface{} {
 	if filter == "" {
 		filter = "ALL_HOED_SOIL"
 	}
+	maxTrees := p.MaxTrees
+	if maxTrees == 0 {
+		maxTrees = 3
+	}
 	return map[string]interface{}{"location": p.Location, "x": p.X, "y": p.Y, "width": p.Width, "height": p.Height,
-		"request_id": p.RequestID, "seed_item_id": p.SeedItemID, "existing_crop_policy": p.ExistingCropPolicy, "operation": op, "minimum_energy": energy, "stop_time": deadline, "target_filter": filter}
+		"request_id": p.RequestID, "seed_item_id": p.SeedItemID, "existing_crop_policy": p.ExistingCropPolicy, "operation": op, "minimum_energy": energy, "stop_time": deadline, "target_filter": filter,
+		"max_trees": maxTrees, "include_saplings": p.IncludeSaplings}
 }
 
 type farmResult struct {
