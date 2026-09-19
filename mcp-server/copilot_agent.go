@@ -425,7 +425,7 @@ func (a *StardewAgent) toolSessionConfig() *copilot.SessionConfig {
 			return resp.Message, nil
 		})
 
-	findBestTargetTool := copilot.DefineTool("find_best_target", "Find nearest target of specified type with walkable approach tile. Tree candidates are ordinary wild trees only; fruit trees are excluded. Inspect growthStage/isFullyGrown before claiming a mature tree.",
+	findBestTargetTool := copilot.DefineTool("find_best_target", "Find nearest target of specified type with walkable approach tile. Tree results include treeState/isStump, current-state hits, total removal estimate and the full removal sequence. Tree candidates are ordinary wild trees only; fruit trees are excluded.",
 		func(params TargetTypeParams, inv copilot.ToolInvocation) (string, error) {
 			state := gameClient.GetState()
 			if state == nil {
@@ -434,7 +434,7 @@ func (a *StardewAgent) toolSessionConfig() *copilot.SessionConfig {
 			return a.findBestTarget(state, params.TargetType), nil
 		})
 
-	clearTargetTool := copilot.DefineTool("clear_target", "Find and clear the nearest target automatically (does select_item + move_to + face + use_tool in one call)",
+	clearTargetTool := copilot.DefineTool("clear_target", "Find and clear the nearest one-step debris target automatically. Do not use for trees or stumps; use remove_wild_trees, which verifies the full tree-to-stump-to-removed sequence.",
 		func(params TargetTypeParams, inv copilot.ToolInvocation) (string, error) {
 			return a.clearTarget(params.TargetType)
 		})
@@ -882,7 +882,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
-	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove ordinary wild trees and collect their drops. With preserve_young_trees=true, select only an observed type=tree with growthStage>=5/isFullyGrown=true/canBeChopped=true; map T or type=tree alone does not prove maturity. Never select fruit_tree. For an inventory quantity goal always use max_trees=1, inspect the inventory, and call collect_loose_items before selecting another tree. Preserve fruit trees, crops and facilities.",
+	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove ordinary wild trees and collect their drops. Read treeState/isStump, hitsRequired, estimatedTotalHitsToRemove and removalSequence; a mature tree must be felled and then its stump must also be removed. With preserve_young_trees=true, select only treeState=mature_tree with isStump=false and growthStage>=5/isFullyGrown=true/canBeChopped=true. Never select fruit_tree. For an inventory quantity goal always use max_trees=1, inspect the inventory, and call collect_loose_items before selecting another tree. Preserve fruit trees, crops and facilities.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("trees", p)
 		})
@@ -1485,13 +1485,17 @@ type TargetInfo struct {
 
 // Target represents a potential target for the AI
 type Target struct {
-	X            int
-	Y            int
-	Name         string
-	Type         string
-	RequiredTool string
-	HitsRequired int
-	Distance     int
+	X               int
+	Y               int
+	Name            string
+	Type            string
+	RequiredTool    string
+	HitsRequired    int
+	TreeState       string
+	IsStump         bool
+	TotalHits       int
+	RemovalSequence string
+	Distance        int
 }
 
 func (a *StardewAgent) handleMoveTo(x, y int) (string, error) {
@@ -1537,6 +1541,10 @@ func (a *StardewAgent) clearTarget(targetType string) (string, error) {
 	state := gameClient.GetState()
 	if state == nil {
 		return "Game disconnected", nil
+	}
+	normalizedTarget := strings.ToLower(strings.TrimSpace(targetType))
+	if normalizedTarget == "tree" || normalizedTarget == "trees" || normalizedTarget == "wood" || normalizedTarget == "log" || normalizedTarget == "logs" {
+		return "TREE_SEQUENCE_REQUIRED: clear_target is only for one-step debris. Inspect treeState/isStump/removalSequence and call remove_wild_trees so the tree, resulting stump, drops, and final disappearance are verified.", nil
 	}
 
 	targetInfo := a.findBestTargetInfo(state, targetType)
@@ -1646,13 +1654,17 @@ func (a *StardewAgent) findBestTargetInfo(state *GameState, targetType string) *
 					hitsRequired = 10
 				}
 				targets = append(targets, Target{
-					X:            tf.X,
-					Y:            tf.Y,
-					Name:         tf.Type,
-					Type:         "terrain",
-					RequiredTool: tf.RequiredTool,
-					HitsRequired: hitsRequired,
-					Distance:     abs(tf.X-px) + abs(tf.Y-py),
+					X:               tf.X,
+					Y:               tf.Y,
+					Name:            tf.TreeState,
+					Type:            "terrain",
+					RequiredTool:    tf.RequiredTool,
+					HitsRequired:    hitsRequired,
+					TreeState:       tf.TreeState,
+					IsStump:         tf.IsStump,
+					TotalHits:       tf.EstimatedTotalHitsToRemove,
+					RemovalSequence: tf.RemovalSequence,
+					Distance:        abs(tf.X-px) + abs(tf.Y-py),
 				})
 			}
 		}
@@ -1765,13 +1777,17 @@ func (a *StardewAgent) findBestTarget(state *GameState, targetType string) strin
 					hitsRequired = 10
 				}
 				targets = append(targets, Target{
-					X:            tf.X,
-					Y:            tf.Y,
-					Name:         tf.Type,
-					Type:         "terrain",
-					RequiredTool: tf.RequiredTool,
-					HitsRequired: hitsRequired,
-					Distance:     abs(tf.X-px) + abs(tf.Y-py),
+					X:               tf.X,
+					Y:               tf.Y,
+					Name:            tf.TreeState,
+					Type:            "terrain",
+					RequiredTool:    tf.RequiredTool,
+					HitsRequired:    hitsRequired,
+					TreeState:       tf.TreeState,
+					IsStump:         tf.IsStump,
+					TotalHits:       tf.EstimatedTotalHitsToRemove,
+					RemovalSequence: tf.RemovalSequence,
+					Distance:        abs(tf.X-px) + abs(tf.Y-py),
 				})
 			}
 		}
@@ -1855,6 +1871,11 @@ func (a *StardewAgent) findBestTarget(state *GameState, targetType string) strin
 
 		for _, adj := range adjacents {
 			if a.isTileWalkable(state, adj.x, adj.y) {
+				if target.TreeState != "" {
+					return fmt.Sprintf("TREE TARGET: %s at (%d,%d); isStump=%v; current-state estimated hits=%d; full-removal estimated hits=%d; tool=%s; removalSequence=%s; approach=(%d,%d). Use remove_wild_trees for the exact tile; do not use a single use_tool or clear_target.",
+						target.TreeState, target.X, target.Y, target.IsStump, target.HitsRequired, target.TotalHits,
+						target.RequiredTool, target.RemovalSequence, adj.x, adj.y)
+				}
 				toolName := strings.ToLower(target.RequiredTool)
 				if toolName == "" {
 					toolName = "none"
@@ -1952,12 +1973,13 @@ func (a *StardewAgent) formatGameStateContext(state *GameState) string {
 		sb.WriteString("No ordinary wild trees observed.\n")
 	} else {
 		for _, tf := range trees {
-			fmt.Fprintf(&sb, "(%d,%d): type=tree growthStage=%d isFullyGrown=%v canBeChopped=%v distance=%d\n",
-				tf.X, tf.Y, tf.GrowthStage, tf.IsFullyGrown, tf.CanBeChopped,
+			fmt.Fprintf(&sb, "(%d,%d): type=tree treeState=%s isStump=%v growthStage=%d isFullyGrown=%v canBeChopped=%v currentStateHits=%d estimatedTotalHitsToRemove=%d removalSequence=%s distance=%d\n",
+				tf.X, tf.Y, tf.TreeState, tf.IsStump, tf.GrowthStage, tf.IsFullyGrown, tf.CanBeChopped,
+				tf.HitsRequired, tf.EstimatedTotalHitsToRemove, tf.RemovalSequence,
 				abs(tf.X-int(state.Player.X))+abs(tf.Y-int(state.Player.Y)))
 		}
 	}
-	sb.WriteString("For a mature-tree goal, only growthStage>=5/isFullyGrown=true/canBeChopped=true is eligible. A map T or type=tree alone is insufficient.\n")
+	sb.WriteString("A twig is a one-hit map object. A tree or stump is a repeated-hit terrain feature. Never treat type=tree as one-hit debris. Use remove_wild_trees to verify every transition. For a mature-tree goal, only treeState=mature_tree/isStump=false/growthStage>=5 is eligible.\n")
 	sb.WriteString("\n--- OBSERVED CROP TILES (C is not automatically blocked) ---\n")
 	for _, tf := range state.Surroundings.NearbyTerrainFeatures {
 		if tf.Type == "hoe_dirt" {
@@ -2059,7 +2081,7 @@ func (a *StardewAgent) formatGameStateContext(state *GameState) string {
 			if tool == "" {
 				tool = "unknown"
 			}
-			sb.WriteString(fmt.Sprintf("- %s at (%d, %d) [%s]\n", obj.DisplayName, obj.X, obj.Y, tool))
+			sb.WriteString(fmt.Sprintf("- %s at (%d, %d) [state=%s mapObject=true tool=%s hits=%d]\n", obj.DisplayName, obj.X, obj.Y, obj.Type, tool, obj.HitsRequired))
 			shown++
 		}
 	}

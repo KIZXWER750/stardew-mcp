@@ -39,15 +39,15 @@ func TestGameContextMakesTreeMaturityExplicit(t *testing.T) {
 	s.Player.Location = "Farm"
 	s.Player.X, s.Player.Y = 40, 10
 	s.Surroundings.NearbyTerrainFeatures = []NearbyTerrain{
-		{X: 43, Y: 13, Type: "tree", GrowthStage: 3, IsFullyGrown: false, CanBeChopped: false},
-		{X: 46, Y: 18, Type: "tree", GrowthStage: 5, IsFullyGrown: true, CanBeChopped: true},
+		{X: 43, Y: 13, Type: "tree", TreeState: "young_tree_stage_3", GrowthStage: 3, IsFullyGrown: false, CanBeChopped: false, HitsRequired: 2, EstimatedTotalHitsToRemove: 2, RemovalSequence: "axe_repeatedly_until_terrain_feature_disappears"},
+		{X: 46, Y: 18, Type: "tree", TreeState: "mature_tree", GrowthStage: 5, IsFullyGrown: true, CanBeChopped: true, HitsRequired: 10, EstimatedTotalHitsToRemove: 15, RemovalSequence: "axe_repeatedly_until_tree_falls_then_continue_on_stump_until_terrain_feature_disappears"},
 		{X: 41, Y: 11, Type: "fruit_tree", GrowthStage: 4, IsFullyGrown: true},
 	}
 	context := (&StardewAgent{}).formatGameStateContext(s)
 	for _, want := range []string{
-		"(43,13): type=tree growthStage=3 isFullyGrown=false canBeChopped=false",
-		"(46,18): type=tree growthStage=5 isFullyGrown=true canBeChopped=true",
-		"A map T or type=tree alone is insufficient",
+		"(43,13): type=tree treeState=young_tree_stage_3 isStump=false growthStage=3 isFullyGrown=false canBeChopped=false currentStateHits=2 estimatedTotalHitsToRemove=2",
+		"(46,18): type=tree treeState=mature_tree isStump=false growthStage=5 isFullyGrown=true canBeChopped=true currentStateHits=10 estimatedTotalHitsToRemove=15",
+		"Never treat type=tree as one-hit debris",
 	} {
 		if !strings.Contains(context, want) {
 			t.Fatalf("tree maturity context missing %q", want)

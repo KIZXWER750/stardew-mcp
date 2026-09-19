@@ -127,25 +127,29 @@ type NearbyObject struct {
 }
 
 type NearbyTerrain struct {
-	X                 int    `json:"x"`
-	Y                 int    `json:"y"`
-	Type              string `json:"type"`
-	IsPassable        bool   `json:"isPassable"`
-	GrowthStage       int    `json:"growthStage"`
-	IsFullyGrown      bool   `json:"isFullyGrown"`
-	HasSeed           bool   `json:"hasSeed"`
-	CanBeChopped      bool   `json:"canBeChopped"`
-	FruitCount        int    `json:"fruitCount"`
-	IsWatered         bool   `json:"isWatered"`
-	HasCrop           bool   `json:"hasCrop"`
-	CropName          string `json:"cropName,omitempty"`
-	CropPhase         int    `json:"cropPhase"`
-	DaysUntilHarvest  int    `json:"daysUntilHarvest"`
-	IsReadyForHarvest bool   `json:"isReadyForHarvest"`
-	IsDead            bool   `json:"isDead"`
-	GrassType         int    `json:"grassType"`
-	RequiredTool      string `json:"requiredTool,omitempty"`
-	HitsRequired      int    `json:"hitsRequired"`
+	X                          int    `json:"x"`
+	Y                          int    `json:"y"`
+	Type                       string `json:"type"`
+	IsPassable                 bool   `json:"isPassable"`
+	GrowthStage                int    `json:"growthStage"`
+	IsStump                    bool   `json:"isStump"`
+	TreeState                  string `json:"treeState"`
+	IsFullyGrown               bool   `json:"isFullyGrown"`
+	HasSeed                    bool   `json:"hasSeed"`
+	CanBeChopped               bool   `json:"canBeChopped"`
+	FruitCount                 int    `json:"fruitCount"`
+	IsWatered                  bool   `json:"isWatered"`
+	HasCrop                    bool   `json:"hasCrop"`
+	CropName                   string `json:"cropName,omitempty"`
+	CropPhase                  int    `json:"cropPhase"`
+	DaysUntilHarvest           int    `json:"daysUntilHarvest"`
+	IsReadyForHarvest          bool   `json:"isReadyForHarvest"`
+	IsDead                     bool   `json:"isDead"`
+	GrassType                  int    `json:"grassType"`
+	RequiredTool               string `json:"requiredTool,omitempty"`
+	HitsRequired               int    `json:"hitsRequired"`
+	EstimatedTotalHitsToRemove int    `json:"estimatedTotalHitsToRemove"`
+	RemovalSequence            string `json:"removalSequence"`
 }
 
 type NearbyNPC struct {

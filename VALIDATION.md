@@ -1,4 +1,6 @@
-# 1.14.2 검증 기록 — 2026-09-19
+# 1.14.3 검증 기록 — 2026-09-19
+
+1.14.3은 나무 관측에 `treeState`, `isStump`, `hitsRequired`, `estimatedTotalHitsToRemove`, `removalSequence`를 추가합니다. 밑동을 성목으로 표시하던 `isFullyGrown`/`canBeChopped` 판정을 수정하고, 일반 `clear_target`이 나무를 한 단계만 처리한 뒤 완료로 보고하지 못하게 차단합니다. Go 회귀 테스트는 JSON 역직렬화부터 실제 AI 문맥 문자열까지 상태 정보가 보존되는지 확인합니다.
 
 1.14.2는 다음 날 로드 후 `Game1.newDay`가 참인 6시 입력 게이트에서도 정상 이동 입력을 보내도록 수정합니다. 이전 구현은 이 값이 참이면 입력 전송 전에 반환했기 때문에 사용자의 클릭이 성공으로 오인될 수 있었습니다. 새 구현은 네 방향을 순환하며 입력하고 `hasMoved`와 `shouldTimePass()`를 함께 확인하며, `MORNING GATE/INPUT/VERIFIED` 로그를 남깁니다.
 

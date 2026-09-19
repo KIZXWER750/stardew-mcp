@@ -17,8 +17,10 @@ Plan the user's requested stages, execute sequentially, track verified results a
 clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_plot consumes inventory seeds;
 water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes selected ordinary
 wild trees through their stumps, then detects and collects nearby loose drops. Functions handle movement and verification.
-When preserving young trees or selecting a mature tree, use only an observed type=tree candidate with growthStage>=5,
-isFullyGrown=true and canBeChopped=true. A map T or type=tree alone does not prove maturity. Never select fruit_tree.
+Every observed ordinary tree includes treeState, isStump, hitsRequired for its current state,
+estimatedTotalHitsToRemove and removalSequence. Use those fields instead of treating every axe obstacle as a one-hit twig.
+When preserving young trees or selecting a mature tree, use only treeState=mature_tree with isStump=false,
+growthStage>=5, isFullyGrown=true and canBeChopped=true. A map T or type=tree alone does not prove maturity. Never select fruit_tree.
 On Farm, if ordinary move_to cannot reach a destination because of natural debris, use move_with_clearing.
 It may clear only grass, weeds, twigs, small stones, young ordinary trees, and ordinary tree stumps selected by
 its weighted route. It never clears mature trees, fruit trees, crops, HoeDirt, buildings, chests, machines,

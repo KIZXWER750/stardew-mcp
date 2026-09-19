@@ -569,6 +569,9 @@ public class GameStateSerializer
         if (obj is IndoorPot) return "indoor_pot";
         if (obj.IsSprinkler()) return "sprinkler";
         if (obj.bigCraftable.Value) return "machine";
+        if (obj.Name.Contains("Twig")) return "twig";
+        if (obj.Name.Contains("Weed")) return "weed";
+        if (obj.Name.Contains("Stone")) return "stone";
         if (obj.Type == "Crafting") return "crafting";
         return "object";
     }
@@ -658,6 +661,9 @@ public class GameStateSerializer
 
         if (feature is Tree tree)
         {
+            if (tree.stump.Value)
+                return GetTreeStumpHits(axeLevel);
+
             int growthStage = tree.growthStage.Value;
 
             // Fully grown tree (stage 5)
@@ -729,6 +735,26 @@ public class GameStateSerializer
         }
 
         return 1;
+    }
+
+    private static int GetTreeStumpHits(int axeLevel)
+    {
+        return axeLevel switch
+        {
+            0 => 5,
+            1 => 4,
+            2 => 3,
+            3 => 2,
+            4 => 1,
+            _ => 5
+        };
+    }
+
+    private static string GetTreeState(Tree tree)
+    {
+        if (tree.stump.Value) return "stump";
+        if (tree.growthStage.Value >= 5) return "mature_tree";
+        return $"young_tree_stage_{tree.growthStage.Value}";
     }
 
     /// <summary>Calculate hits required for a resource clump based on player's tool level.</summary>
@@ -812,10 +838,23 @@ public class GameStateSerializer
                     // Add specific info based on type
                     if (feature is Tree tree)
                     {
+                        int currentHits = GetHitsRequiredForTerrain(tree);
+                        int stumpHits = GetTreeStumpHits(GetAxeLevel());
                         featureInfo.GrowthStage = tree.growthStage.Value;
-                        featureInfo.IsFullyGrown = tree.growthStage.Value >= 5;
+                        featureInfo.IsStump = tree.stump.Value;
+                        featureInfo.TreeState = GetTreeState(tree);
+                        featureInfo.IsFullyGrown = !tree.stump.Value && tree.growthStage.Value >= 5;
                         featureInfo.HasSeed = tree.hasSeed.Value;
-                        featureInfo.CanBeChopped = tree.growthStage.Value >= 5;
+                        featureInfo.CanBeChopped = !tree.stump.Value && tree.growthStage.Value >= 5;
+                        featureInfo.HitsRequired = currentHits;
+                        featureInfo.EstimatedTotalHitsToRemove = tree.stump.Value
+                            ? currentHits
+                            : tree.growthStage.Value >= 5 ? currentHits + stumpHits : currentHits;
+                        featureInfo.RemovalSequence = tree.stump.Value
+                            ? "axe_repeatedly_until_terrain_feature_disappears"
+                            : tree.growthStage.Value >= 5
+                                ? "axe_repeatedly_until_tree_falls_then_continue_on_stump_until_terrain_feature_disappears"
+                                : "axe_repeatedly_until_terrain_feature_disappears";
                     }
                     else if (feature is FruitTree fruitTree)
                     {
@@ -1588,6 +1627,8 @@ public class NearbyTerrainFeature
     public string Type { get; set; } = "";
     public bool IsPassable { get; set; }
     public int GrowthStage { get; set; }
+    public bool IsStump { get; set; }
+    public string TreeState { get; set; } = "";
     public bool IsFullyGrown { get; set; }
     public bool HasSeed { get; set; }
     public bool CanBeChopped { get; set; }
@@ -1602,6 +1643,8 @@ public class NearbyTerrainFeature
     public int GrassType { get; set; }
     public string? RequiredTool { get; set; }
     public int HitsRequired { get; set; } = 1; // Number of tool hits to destroy
+    public int EstimatedTotalHitsToRemove { get; set; }
+    public string RemovalSequence { get; set; } = "";
 }
 
 public class NearbyNPC

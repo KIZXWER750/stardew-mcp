@@ -31,6 +31,9 @@ public partial class CommandExecutor
         public bool IsWildTree { get; set; }
         public bool IsTreeStump { get; set; }
         public int GrowthStage { get; set; }
+        public string TreeState { get; set; } = "";
+        public string RequiredTool { get; set; } = "";
+        public string RemovalSequence { get; set; } = "";
         public string HarvestMethod { get; set; } = "";
         public string Terrain { get; set; } = "none";
         public string Obstacle { get; set; } = "";
@@ -198,6 +201,13 @@ public partial class CommandExecutor
                 } }
             else if (tf is Tree tree) {
                 t.IsWildTree=true;t.IsTreeStump=tree.stump.Value;t.GrowthStage=tree.growthStage.Value;
+                t.TreeState=tree.stump.Value?"stump":tree.growthStage.Value>=5?"mature_tree":$"young_tree_stage_{tree.growthStage.Value}";
+                t.RequiredTool="Axe";
+                t.RemovalSequence=tree.stump.Value
+                    ? "axe repeatedly until the terrain feature disappears"
+                    : tree.growthStage.Value>=5
+                        ? "axe repeatedly until the tree falls, then continue on its stump until the terrain feature disappears"
+                        : "axe repeatedly until the terrain feature disappears";
                 t.Obstacle=tree.stump.Value?"protected wild tree stump":"protected wild tree";
                 // Ordinary farm clearing must continue to preserve trees. The dedicated
                 // trees operation explicitly selects Axe without exposing trees as a
