@@ -69,6 +69,18 @@ func memoryRead(action string, values map[string]interface{}) (string, error) {
 	return farmReadCommand(action, values)
 }
 
+func relevantMemoryContext(goal, location string) string {
+	result, err := farmReadCommand("memory_context", map[string]interface{}{"goal": goal, "location": location})
+	if err != nil || strings.HasPrefix(result, "TASK_BLOCKED:") {
+		return ""
+	}
+	const maxContextBytes = 16000
+	if len(result) > maxContextBytes {
+		result = result[:maxContextBytes] + "\n[SELECTED MEMORY TRUNCATED AT 16000 BYTES]"
+	}
+	return result
+}
+
 func (a *StardewAgent) defineMemoryTools() []copilot.Tool {
 	return []copilot.Tool{
 		copilot.DefineTool("search_memory", "Search save-specific remembered chests, notes and persistent tasks. Read-only; chest contents include observation timestamps and may be stale.", func(p MemorySearchParams, _ copilot.ToolInvocation) (string, error) {

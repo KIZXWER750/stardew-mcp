@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace StardewMCP;
@@ -101,9 +103,25 @@ public sealed class WikiKnowledgeSource
     public string License { get; set; } = "";
 }
 
+public sealed class KnowledgeCacheIndex
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string CurrentSignature { get; set; } = "";
+    public string PreviousSignature { get; set; } = "";
+    public bool CacheInvalidated { get; set; }
+    public string VerifiedAtUtc { get; set; } = "";
+    public Dictionary<string, string> Components { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
 public static class KnowledgeSchema
 {
     public const int CurrentVersion = 1;
+
+    public static string ComputeContentSignature(IEnumerable<string> inputs)
+    {
+        string canonical = string.Join("\n", inputs.Where(p => !string.IsNullOrWhiteSpace(p)).OrderBy(p => p, StringComparer.Ordinal));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+    }
 
     public static WorldKnowledgeDocument Normalize(WorldKnowledgeDocument? document)
     {

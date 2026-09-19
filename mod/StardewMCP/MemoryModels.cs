@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace StardewMCP;
 
@@ -109,6 +110,98 @@ public sealed class TaskResumePolicy
     public int MinimumEnergy { get; set; }
     public int LatestStartTime { get; set; } = 2200;
     public Dictionary<string, string> Conditions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class MemoryRestoreReport
+{
+    public string VerifiedAtUtc { get; set; } = "";
+    public string VerificationKind { get; set; } = "";
+    public string GameDate { get; set; } = "";
+    public string NotebookSource { get; set; } = "";
+    public string TaskSource { get; set; } = "";
+    public long NotebookRevision { get; set; }
+    public long TaskRevision { get; set; }
+    public int ChestCount { get; set; }
+    public int NoteCount { get; set; }
+    public int OpenTaskCount { get; set; }
+    public bool RoundTripVerified { get; set; }
+    public string Error { get; set; } = "";
+}
+
+public sealed class RelevantMemoryContext
+{
+    public string Goal { get; set; } = "";
+    public string Location { get; set; } = "";
+    public string GameDate { get; set; } = "";
+    public MemoryRestoreReport Restore { get; set; } = new();
+    public List<RelevantChestMemory> Chests { get; set; } = new();
+    public List<MemoryNote> Notes { get; set; } = new();
+    public List<PersistentTask> Tasks { get; set; } = new();
+}
+
+public sealed class RelevantChestMemory
+{
+    public string MemoryId { get; set; } = "";
+    public string Location { get; set; } = "";
+    public int X { get; set; }
+    public int Y { get; set; }
+    public ChestColorMemory Color { get; set; } = new();
+    public ChestPurposeMemory Purpose { get; set; } = new();
+    public List<ChestItemMemory> MajorContents { get; set; } = new();
+    public string ObservedGameDate { get; set; } = "";
+    public int ObservedGameTime { get; set; }
+}
+
+public static class MemoryContextSelector
+{
+    public static RelevantMemoryContext Select(NotebookDocument notebook, TaskDocument tasks, string goal, string location,
+        string gameDate, MemoryRestoreReport? restore = null, int limitPerKind = 8)
+    {
+        notebook = MemorySchema.Normalize(notebook);
+        tasks = MemorySchema.Normalize(tasks);
+        limitPerKind = Math.Clamp(limitPerKind, 1, 20);
+        HashSet<string> tokens = Tokenize(goal);
+        bool Match(string? value) => tokens.Count > 0 && Tokenize(value ?? "").Overlaps(tokens);
+        int LocationScore(string? value) => !string.IsNullOrWhiteSpace(location)
+            && string.Equals(value, location, StringComparison.OrdinalIgnoreCase) ? 40 : 0;
+
+        var selectedTasks = tasks.Tasks.Where(p => !TaskStatuses.IsTerminal(p.Status))
+            .Select(p => new { Item = p, Score = 100 + p.Priority + p.Targets.Select(t => LocationScore(t.Location)).DefaultIfEmpty(0).Max()
+                + (Match(p.Summary) || Match(p.Kind) || Match(p.BlockedReason) ? 30 : 0) })
+            .OrderByDescending(p => p.Score).ThenByDescending(p => p.Item.UpdatedAtUtc, StringComparer.Ordinal)
+            .Take(limitPerKind).Select(p => p.Item).ToList();
+
+        var selectedChests = notebook.Chests.Select(p => new
+            {
+                Item = p,
+                Score = LocationScore(p.Location) + (Match(p.Purpose.Value) ? 30 : 0)
+                    + (p.Contents.Any(i => Match(i.Name) || Match(i.ItemId)) ? 20 : 0)
+            })
+            .Where(p => p.Score > 0).OrderByDescending(p => p.Score)
+            .ThenByDescending(p => p.Item.ObservedAtUtc, StringComparer.Ordinal).Take(limitPerKind)
+            .Select(p => new RelevantChestMemory
+            {
+                MemoryId = p.Item.Id, Location = p.Item.Location, X = p.Item.TileX, Y = p.Item.TileY,
+                Color = p.Item.Color, Purpose = p.Item.Purpose,
+                MajorContents = p.Item.Contents.OrderByDescending(i => i.Quantity).Take(12).ToList(),
+                ObservedGameDate = p.Item.ObservedGameDate, ObservedGameTime = p.Item.ObservedGameTime
+            }).ToList();
+
+        var selectedNotes = notebook.Notes.Where(p => Match(p.Text) || Match(p.Kind)
+                || p.Kind.Equals("rule", StringComparison.OrdinalIgnoreCase)
+                || p.Kind.Equals("preference", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(p => p.Source.Equals("user", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(p => p.UpdatedAtUtc, StringComparer.Ordinal).Take(limitPerKind).ToList();
+
+        return new RelevantMemoryContext
+        {
+            Goal = goal, Location = location, GameDate = gameDate, Restore = restore ?? new(),
+            Chests = selectedChests, Notes = selectedNotes, Tasks = selectedTasks
+        };
+    }
+
+    private static HashSet<string> Tokenize(string value) => Regex.Matches(value.ToLowerInvariant(), @"[\p{L}\p{N}_-]{2,}")
+        .Select(p => p.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 public static class TaskStatuses

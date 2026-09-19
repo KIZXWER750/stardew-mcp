@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using StardewModdingAPI;
@@ -18,6 +17,8 @@ public partial class CommandExecutor
     private readonly List<WikiKnowledgeEntry> _wikiKnowledge = new();
     private readonly Dictionary<string, int> _wikiKnowledgeCounts = new(StringComparer.OrdinalIgnoreCase);
     private string _wikiKnowledgeRetrievedAtUtc = "";
+    private Dictionary<string, string> _knowledgeSignatureComponents = new(StringComparer.OrdinalIgnoreCase);
+    private KnowledgeCacheIndex _knowledgeCacheIndex = new();
     private string _knowledgePath = "";
 
     public void LoadGameKnowledge()
@@ -28,6 +29,7 @@ public partial class CommandExecutor
         WorldKnowledgeDocument? prior = ReadKnowledgeFile(_knowledgePath);
         _knowledge = ExtractGameKnowledge(signature, prior);
         WriteKnowledgeFile();
+        WriteKnowledgeCacheIndex(signature);
         LoadWikiKnowledge();
         _monitor.Log($"[KNOWLEDGE] Extracted {_knowledge.Locations.Count} locations, {_knowledge.Routes.Count} routes and {_knowledge.Shops.Count} shops; loaded {_wikiKnowledge.Count} attributed wiki facts ({signature[..12]}).", LogLevel.Info);
     }
@@ -38,6 +40,8 @@ public partial class CommandExecutor
         _wikiKnowledge.Clear();
         _wikiKnowledgeCounts.Clear();
         _wikiKnowledgeRetrievedAtUtc = "";
+        _knowledgeSignatureComponents.Clear();
+        _knowledgeCacheIndex = new();
         _knowledgePath = "";
     }
 
@@ -70,11 +74,99 @@ public partial class CommandExecutor
 
     private string BuildContentSignature()
     {
-        var parts = new List<string> { "game=" + Game1.GetVersionString(), "smapi=" + Constants.ApiVersion };
-        parts.AddRange(_helper.ModRegistry.GetAll().Select(p => p.Manifest.UniqueID + "@" + p.Manifest.Version)
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", parts)));
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        var mods = _helper.ModRegistry.GetAll().Select(p => p.Manifest.UniqueID + "@" + p.Manifest.Version)
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+        var maps = BuildMapSignatureInputs();
+        var shops = BuildShopSignatureInputs();
+        _knowledgeSignatureComponents = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["gameVersion"] = Game1.GetVersionString(),
+            ["smapiVersion"] = Constants.ApiVersion.ToString(),
+            ["modsHash"] = KnowledgeSchema.ComputeContentSignature(mods),
+            ["mapsHash"] = KnowledgeSchema.ComputeContentSignature(maps),
+            ["shopsHash"] = KnowledgeSchema.ComputeContentSignature(shops)
+        };
+        return KnowledgeSchema.ComputeContentSignature(_knowledgeSignatureComponents.Select(p => p.Key + "=" + p.Value));
+    }
+
+    private static List<string> BuildMapSignatureInputs()
+    {
+        var parts = new List<string>();
+        string[] properties = { "Action", "TouchAction", "Passable", "NPCBarrier", "NoPath", "Water", "Diggable" };
+        foreach (GameLocation location in Game1.locations.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            parts.Add("location=" + location.Name);
+            foreach (var warp in location.warps)
+                parts.Add($"warp={location.Name}|{warp.X}|{warp.Y}|{warp.TargetName}|{ReadNullableInt(warp, "TargetX")}|{ReadNullableInt(warp, "TargetY")}");
+            foreach (var door in location.doors.Pairs)
+                parts.Add($"door={location.Name}|{door.Key.X}|{door.Key.Y}|{door.Value}");
+            if (location.Map == null) continue;
+            foreach (var layer in location.Map.Layers)
+            {
+                parts.Add($"layer={location.Name}|{layer.Id}|{layer.LayerWidth}|{layer.LayerHeight}");
+                for (int y = 0; y < layer.LayerHeight; y++)
+                {
+                    var row = new StringBuilder($"tiles={location.Name}|{layer.Id}|{y}|");
+                    for (int x = 0; x < layer.LayerWidth; x++)
+                    {
+                        row.Append(layer.Tiles[x, y]?.TileIndex ?? -1).Append(',');
+                        foreach (string property in properties)
+                        {
+                            string value = location.doesTileHaveProperty(x, y, property, layer.Id) ?? "";
+                            if (value != "") row.Append(property).Append('=').Append(value).Append(';');
+                        }
+                    }
+                    parts.Add(row.ToString());
+                }
+            }
+        }
+        return parts;
+    }
+
+    private void WriteKnowledgeCacheIndex(string signature)
+    {
+        try
+        {
+            string path = Path.Combine(_helper.DirectoryPath, "data", "knowledge", "cache-index.json");
+            KnowledgeCacheIndex? previous = null;
+            if (File.Exists(path)) previous = JsonSerializer.Deserialize<KnowledgeCacheIndex>(File.ReadAllText(path));
+            var index = new KnowledgeCacheIndex
+            {
+                CurrentSignature = signature,
+                PreviousSignature = previous?.CurrentSignature ?? "",
+                CacheInvalidated = previous != null && !previous.CurrentSignature.Equals(signature, StringComparison.OrdinalIgnoreCase),
+                VerifiedAtUtc = DateTime.UtcNow.ToString("O"), Components = new(_knowledgeSignatureComponents, StringComparer.OrdinalIgnoreCase)
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            string temporary = path + ".tmp";
+            File.WriteAllText(temporary, JsonSerializer.Serialize(index, new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, path, true);
+            _knowledgeCacheIndex = index;
+            _monitor.Log($"[KNOWLEDGE CACHE] signature={signature[..12]}, invalidated={index.CacheInvalidated}, maps={index.Components["mapsHash"][..12]}, shops={index.Components["shopsHash"][..12]}", LogLevel.Info);
+        }
+        catch (Exception ex) { _monitor.Log("[KNOWLEDGE CACHE] Index verification failed: " + ex.Message, LogLevel.Warn); }
+    }
+
+    private static List<string> BuildShopSignatureInputs()
+    {
+        var parts = new List<string>();
+        try
+        {
+            Type? shopDataType = typeof(Game1).Assembly.GetType("StardewValley.GameData.Shops.ShopData");
+            MethodInfo? load = Game1.content.GetType().GetMethods().FirstOrDefault(p => p.Name == "Load" && p.IsGenericMethodDefinition
+                && p.GetParameters().Length == 1 && p.GetParameters()[0].ParameterType == typeof(string));
+            if (shopDataType == null || load == null) return parts;
+            Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), shopDataType);
+            if (load.MakeGenericMethod(dictionaryType).Invoke(Game1.content, new object[] { "Data/Shops" }) is not IDictionary shops) return parts;
+            foreach (DictionaryEntry entry in shops)
+            {
+                object data = entry.Value!;
+                int count = ShopMember(data, "Items") is ICollection items ? items.Count : 0;
+                parts.Add($"shop={entry.Key}|items={count}|open={ShopMember(data, "OpenTime")}|close={ShopMember(data, "CloseTime")}");
+            }
+        }
+        catch { /* Extraction logs the actionable warning later; an empty hash still participates in the signature. */ }
+        return parts;
     }
 
     private WorldKnowledgeDocument ExtractGameKnowledge(string signature, WorldKnowledgeDocument? prior)

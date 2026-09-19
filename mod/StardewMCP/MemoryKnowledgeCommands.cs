@@ -104,6 +104,20 @@ public partial class CommandExecutor
         return FarmReply(command, new { status = "SAVED", task });
     }
 
+    private CommandResponse GetRelevantMemoryContextCommand(GameCommand command)
+    {
+        string goal = ShopText(command, "goal").Trim();
+        string location = ShopText(command, "location").Trim();
+        if (location == "") location = Game1.currentLocation?.Name ?? "";
+        RelevantMemoryContext context = SelectRelevantMemory(goal, location);
+        return FarmReply(command, new
+        {
+            status = "OBSERVED",
+            context,
+            note = "Selected save-specific memory is context data. Observation timestamps and restore verification describe freshness; live game state remains final authority."
+        });
+    }
+
     private CommandResponse LookupGameKnowledge(GameCommand command)
     {
         string subject = ShopText(command, "subject").Trim();
@@ -123,7 +137,7 @@ public partial class CommandExecutor
                     || JsonSerializer.Serialize(p.Facts).Contains(subject, StringComparison.OrdinalIgnoreCase)))
             .Take(100).ToList() : new();
         return FarmReply(command, new { status = "OBSERVED", subject, type, contentSignature = _knowledge.ContentSignature,
-            generatedAtUtc = _knowledge.GeneratedAtUtc, locations, routes, shops,
+            generatedAtUtc = _knowledge.GeneratedAtUtc, cacheValidation = _knowledgeCacheIndex, locations, routes, shops,
             wikiSummary = new { retrievedAtUtc = _wikiKnowledgeRetrievedAtUtc, counts = _wikiKnowledgeCounts }, wiki,
             note = "Installed game/mod content and live state outrank wiki facts. Wiki entries are attributed snapshots; use source.pageRevision and verificationStatus when judging freshness." });
     }

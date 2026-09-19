@@ -80,7 +80,7 @@ public class ModEntry : Mod
 
     private void OnDayStarted(object? sender, DayStartedEventArgs e)
     {
-        _commandExecutor?.RefreshCurrentLocationChestMemory();
+        _commandExecutor?.VerifyLongTermMemoryAfterDayChange();
     }
 
     private void OnTimeChanged(object? sender, TimeChangedEventArgs e)

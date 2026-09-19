@@ -51,4 +51,21 @@ Check(KnowledgeSchema.FindRoute(knowledge,"Town","Farm")==null,"Knowledge route 
 Check(KnowledgeSchema.FindRoute(knowledge,"Farm","Farm")!.Count==0,"Same-location knowledge route must be empty");
 var wiki=System.Text.Json.JsonSerializer.Deserialize<WikiKnowledgeCollection>("{\"schemaVersion\":1,\"category\":\"crops\",\"entries\":[{\"subject\":\"Parsnip\",\"category\":\"crop\",\"facts\":{\"growthDays\":4},\"source\":{\"pageUrl\":\"https://stardewvalleywiki.com/Parsnip\",\"pageRevision\":123}}]}",new System.Text.Json.JsonSerializerOptions {PropertyNameCaseInsensitive=true});
 Check(wiki?.Entries.Count==1 && wiki.Entries[0].Facts["growthDays"].GetInt32()==4 && wiki.Entries[0].Source.PageRevision==123,"Wiki cache must retain normalized facts and provenance");
-Console.WriteLine("25 policy, memory and knowledge regression checks passed.");
+var context=MemoryContextSelector.Select(new NotebookDocument {Chests=new() {
+    new ChestMemory {Id="farm-chest",Location="Farm",Purpose=new ChestPurposeMemory {Value="wood storage"},Contents=new(){new ChestItemMemory{Name="Wood",Quantity=80}}},
+    new ChestMemory {Id="town-chest",Location="Town",Purpose=new ChestPurposeMemory {Value="fish"}}
+},Notes=new(){new MemoryNote{Id="rule",Kind="rule",Text="Keep hardwood"},new MemoryNote{Id="other",Kind="note",Text="Unrelated birthday"}}},
+new TaskDocument {Tasks=new(){new PersistentTask{Id="open",Kind="trees",Summary="Collect wood",Status=TaskStatuses.Paused,Targets=new(){new TaskTarget{Location="Farm"}}},new PersistentTask{Id="done",Summary="Old wood task",Status=TaskStatuses.Completed}}},
+"collect wood on the farm","Farm","spring-2",new MemoryRestoreReport{RoundTripVerified=true});
+Check(context.Chests.Count==1 && context.Chests[0].MemoryId=="farm-chest","Goal context must select local or text-relevant chests only");
+Check(context.Tasks.Count==1 && context.Tasks[0].Id=="open","Goal context must include unfinished work and exclude terminal tasks");
+Check(context.Notes.Count==1 && context.Notes[0].Id=="rule","Goal context must retain user rules without injecting unrelated notes");
+var persistedNotebook=new NotebookDocument{Revision=7,Chests=new(){new ChestMemory{Id="stable"}}};
+var persistedTasks=new TaskDocument{Revision=9,Tasks=new(){new PersistentTask{Id="resume",Summary="Resume tomorrow"}}};
+var restoredNotebook=MemorySchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<NotebookDocument>(System.Text.Json.JsonSerializer.Serialize(persistedNotebook)));
+var restoredTasks=MemorySchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<TaskDocument>(System.Text.Json.JsonSerializer.Serialize(persistedTasks)));
+Check(restoredNotebook.Revision==7 && restoredNotebook.Chests[0].Id=="stable" && restoredTasks.Revision==9 && restoredTasks.Tasks[0].Id=="resume","Memory serialization round trip must preserve revisions and stable IDs");
+string signatureA=KnowledgeSchema.ComputeContentSignature(new[]{"map=Farm|tile=1","shop=SeedShop"});
+string signatureB=KnowledgeSchema.ComputeContentSignature(new[]{"map=Farm|tile=2","shop=SeedShop"});
+Check(signatureA!=signatureB && signatureA.Length==64,"Knowledge signature must invalidate when map inputs change");
+Console.WriteLine("30 policy, memory and knowledge regression checks passed.");

@@ -491,6 +491,7 @@ public partial class CommandExecutor
                 "memory_task_list" => ListPersistentTasksCommand(command),
                 "memory_task_upsert" => UpsertPersistentTaskCommand(command),
                 "memory_task_complete" => CompletePersistentTaskCommand(command),
+                "memory_context" => GetRelevantMemoryContextCommand(command),
                 "knowledge_lookup" => LookupGameKnowledge(command),
                 "knowledge_route" => FindWorldRoute(command),
                 "shop_route" => FindShopRoute(command),

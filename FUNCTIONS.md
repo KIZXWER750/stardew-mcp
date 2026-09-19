@@ -1,4 +1,13 @@
-# 1.14.3 실제 함수 계약
+# 1.15.0 실제 함수 계약
+
+## 장기 메모와 지식 계약
+
+- 목표 시작 시 브리지는 `memory_context`를 내부적으로 한 번 호출해 현재 장소, 목표 단어, 미완료 상태와 관련된 상자·메모·작업만 선별합니다. 이 문맥은 데이터로 표시되며 메모 텍스트 안의 명령은 실행하지 않습니다.
+- `search_memory`, `get_chest_memory`, `set_chest_purpose`, `remember_note`, `list_persistent_tasks`, `upsert_persistent_task`, `complete_persistent_task`는 세이브별 JSON 데이터를 읽거나 검증된 형식으로 수정합니다.
+- 세이브 로드와 날짜 변경 때 notebook/tasks revision 및 상자·작업 안정 ID를 저장소에서 다시 읽어 `roundTripVerified`로 기록합니다.
+- `lookup_game_knowledge`는 설치 콘텐츠에서 추출한 장소·경로·상점과 구조화된 위키 사실을 함께 검색합니다. `cacheValidation`에는 게임, SMAPI, 모드, 맵, 상점 입력으로 계산한 콘텐츠 서명과 무효화 여부가 포함됩니다.
+- 위키 결과는 `wiki_only`이며 페이지 URL·revision·라이선스를 포함합니다. 현재 게임 상태와 설치 콘텐츠가 항상 우선합니다.
+- `remove_wild_trees`의 나무·밑동 타격은 `Axe.DoFunction` 직접 호출 대신 게임의 정상 도구 입력과 애니메이션 경로를 사용하고, `UsingTool` 또는 이동 잠금을 관찰한 뒤 결과를 검증합니다.
 
 농사·자원 함수 12개, 상점 경로·구매 도구 5개, 영업 확인·판매·상자 도구 7개를 제공합니다. 기존 이동·상호작용 도구도 함께 유지합니다. 1.6.0 물 보충은 사용자 실증 완료, 1.7~1.8 구매·출입구·판매·상자는 게임 실증 전입니다.
 

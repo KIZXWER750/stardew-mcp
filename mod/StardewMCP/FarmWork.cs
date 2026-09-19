@@ -702,9 +702,9 @@ public partial class CommandExecutor
                 if(j.ActionWasTree) j.TreeHitLimit=t.IsTreeStump?5:t.GrowthStage>=5?10:4;
                 j.Before=t.Progress;j.EnergyBeforeAction=player.Stamina;j.Attempts++;j.ToolUses++;j.SawBusy=false;j.IdleSince=default;j.PhaseStarted=now;j.Phase="WAIT_TOOL";
                 _monitor.Log($"[FARM INPUT] action={j.Action}, player=({(int)player.Tile.X},{(int)player.Tile.Y}), facing={player.FacingDirection}, expected=({j.Target.X},{j.Target.Y})",LogLevel.Info);
-                // Execute the normal equipped tool mechanics at the verified tile center.
-                // This avoids losing repeated virtual Press events while retaining the
-                // tool's normal energy, water, drops, upgrades and terrain rules.
+                // Trees must enter Stardew's normal tool-input and animation path. Calling
+                // Axe.DoFunction directly only performs the map-object-style dispatch in
+                // some game states, producing a visible swing without a verified tree hit.
                 try {
                     var targetVector=new Vector2(j.Target.X,j.Target.Y);
                     // Scythes are MeleeWeapon instances. Calling DoFunction directly starts
@@ -717,11 +717,20 @@ public partial class CommandExecutor
                         bool remove=feature.performToolAction(player.CurrentTool,0,targetVector);
                         if(remove) Game1.currentLocation.terrainFeatures.Remove(targetVector);
                         _monitor.Log($"[FARM DIRECT GRASS] Scythe applied at tile=({j.Target.X},{j.Target.Y}), remove={remove}",LogLevel.Info);
+                        j.SawBusy=true;
+                    } else if(j.ActionWasTree) {
+                        var useButton=Game1.options.useToolButton.Length>0
+                            ? Game1.options.useToolButton[0].ToSButton()
+                            : SButton.MouseLeft;
+                        _helper.Input.Press(useButton);
+                        _monitor.Log($"[FARM NORMAL INPUT] {player.CurrentTool.Name} pressed for treeState={t.TreeState} at tile=({j.Target.X},{j.Target.Y})",LogLevel.Info);
+                        // WAIT_TOOL observes UsingTool/CanMove before it accepts any result.
+                        // Keep SawBusy false until the game consumes this virtual input.
                     } else {
                         player.CurrentTool.DoFunction(Game1.currentLocation,j.Target.X*64+32,j.Target.Y*64+32,0,player);
                         _monitor.Log($"[FARM DIRECT] {player.CurrentTool.Name} invoked at world=({j.Target.X*64+32},{j.Target.Y*64+32}) tile=({j.Target.X},{j.Target.Y})",LogLevel.Info);
+                        j.SawBusy=true;
                     }
-                    j.SawBusy=true;
                 } catch(Exception ex) {
                     FinishFarm(j,"BLOCKED","DIRECT_TOOL_FAILED: "+ex.Message);
                 }

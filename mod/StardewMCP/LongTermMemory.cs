@@ -19,17 +19,19 @@ public partial class CommandExecutor
     private bool _memoryLoaded;
     private bool _notebookDirty;
     private bool _tasksDirty;
+    private MemoryRestoreReport _memoryRestore = new();
 
     public void LoadLongTermMemory()
     {
-        _notebook = LoadWithBackup(NotebookKey, MemorySchema.Normalize, () => new NotebookDocument());
-        _tasks = LoadWithBackup(TaskKey, MemorySchema.Normalize, () => new TaskDocument());
+        _notebook = LoadWithBackup(NotebookKey, MemorySchema.Normalize, () => new NotebookDocument(), out string notebookSource);
+        _tasks = LoadWithBackup(TaskKey, MemorySchema.Normalize, () => new TaskDocument(), out string taskSource);
         _memoryLoaded = true;
         // Re-save normalized/recovered data so migrations and backup recovery become durable.
         _notebookDirty = true;
         _tasksDirty = true;
         RefreshAllLoadedChests();
         FlushLongTermMemory();
+        VerifyLongTermMemoryPersistence("save_loaded", notebookSource, taskSource);
         _monitor.Log($"[MEMORY] Loaded {_notebook.Chests.Count} chests and {_tasks.Tasks.Count} tasks.", LogLevel.Info);
     }
 
@@ -63,7 +65,18 @@ public partial class CommandExecutor
         _tasks = new();
         _notebookDirty = false;
         _tasksDirty = false;
+        _memoryRestore = new();
     }
+
+    public void VerifyLongTermMemoryAfterDayChange()
+    {
+        if (!_memoryLoaded) return;
+        RefreshCurrentLocationChestMemory();
+        VerifyLongTermMemoryPersistence("day_started", "in_memory", "in_memory");
+    }
+
+    private RelevantMemoryContext SelectRelevantMemory(string goal, string location) =>
+        MemoryContextSelector.Select(_notebook, _tasks, goal, location, Context.IsWorldReady ? FarmDate() : "", _memoryRestore);
 
     public void RefreshCurrentLocationChestMemory()
     {
@@ -174,13 +187,14 @@ public partial class CommandExecutor
         return UpsertPersistentTask(updated);
     }
 
-    private T LoadWithBackup<T>(string key, Func<T?, T> normalize, Func<T> create) where T : MemoryDocument
+    private T LoadWithBackup<T>(string key, Func<T?, T> normalize, Func<T> create, out string source) where T : MemoryDocument
     {
+        source = "new";
         Exception? primaryError = null;
         try
         {
             T? value = _helper.Data.ReadSaveData<T>(key);
-            if (value != null) return normalize(value);
+            if (value != null) { source = "primary"; return normalize(value); }
         }
         catch (Exception ex) { primaryError = ex; }
         try
@@ -189,6 +203,7 @@ public partial class CommandExecutor
             if (backup != null)
             {
                 T recovered = normalize(backup);
+                source = "backup";
                 _monitor.Log($"[MEMORY] Recovered {key} from backup after primary read failure: {primaryError?.Message ?? "missing primary"}", LogLevel.Warn);
                 return recovered;
             }
@@ -200,6 +215,34 @@ public partial class CommandExecutor
             _monitor.Log($"[MEMORY] Could not load {key} or its backup: {primaryError?.Message}; {backupError.Message}", LogLevel.Error);
         }
         return normalize(create());
+    }
+
+    private void VerifyLongTermMemoryPersistence(string kind, string notebookSource, string taskSource)
+    {
+        var report = new MemoryRestoreReport
+        {
+            VerifiedAtUtc = DateTime.UtcNow.ToString("O"), VerificationKind = kind,
+            GameDate = Context.IsWorldReady ? FarmDate() : "", NotebookSource = notebookSource, TaskSource = taskSource,
+            NotebookRevision = _notebook.Revision, TaskRevision = _tasks.Revision,
+            ChestCount = _notebook.Chests.Count, NoteCount = _notebook.Notes.Count,
+            OpenTaskCount = _tasks.Tasks.Count(p => !TaskStatuses.IsTerminal(p.Status))
+        };
+        try
+        {
+            NotebookDocument savedNotebook = MemorySchema.Normalize(_helper.Data.ReadSaveData<NotebookDocument>(NotebookKey));
+            TaskDocument savedTasks = MemorySchema.Normalize(_helper.Data.ReadSaveData<TaskDocument>(TaskKey));
+            report.RoundTripVerified = savedNotebook.Revision == _notebook.Revision && savedTasks.Revision == _tasks.Revision
+                && savedNotebook.Chests.Select(p => p.Id).OrderBy(p => p).SequenceEqual(_notebook.Chests.Select(p => p.Id).OrderBy(p => p))
+                && savedTasks.Tasks.Select(p => p.Id).OrderBy(p => p).SequenceEqual(_tasks.Tasks.Select(p => p.Id).OrderBy(p => p));
+            if (!report.RoundTripVerified) report.Error = "Saved revisions or stable IDs differ from in-memory state.";
+        }
+        catch (Exception ex)
+        {
+            report.Error = ex.GetBaseException().Message;
+        }
+        _memoryRestore = report;
+        _monitor.Log($"[MEMORY RESTORE] kind={kind}, date={report.GameDate}, notebook={report.NotebookRevision}, tasks={report.TaskRevision}, verified={report.RoundTripVerified}, sources={notebookSource}/{taskSource}",
+            report.RoundTripVerified ? LogLevel.Info : LogLevel.Warn);
     }
 
     private void SaveWithBackup<T>(string key, T document, Func<T?, T> normalize) where T : MemoryDocument
