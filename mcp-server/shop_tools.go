@@ -30,7 +30,8 @@ After a verified purchase close_shop. Return to Farm only if requested, using ob
 Purchase completion is not completion of later planting/watering; retain the chosen farm plot across travel.
 Identical purchase parameters in this goal return the prior receipt; do not create multiple purchase goals unless explicitly requested.
 Use the separate crop selling tools only if the user authorizes selling. No free items, money assignment, forced shop opening or teleporting.
-Before a trip check get_shop_status. Normal trading hours are 09:00 inclusive to 17:00 exclusive, not building entry hours. Wednesday exceptions and festivals are returned from game observations. No automatic waiting, sleeping or time manipulation if closed.
+Before a trip check get_shop_status. Normal trading hours are 09:00 inclusive to 17:00 exclusive, not building entry hours. Wednesday exceptions and festivals are returned from game observations. If a persistent goal is waiting for normal opening time, schedule_goal_wakeup for that day/time instead of asking the user or requiring another typed command. Never force the shop open or manipulate time.
+If an authorized seed purchase is blocked only by full inventory, call free_inventory_slot_at_pierre. It automatically sells one whole Pierre-accepted unprotected stack in lowest-value order, then re-inspect the shop before buying. Do not ask which ordinary item to sell unless every accepted stack is protected.
 `
 
 type ShopEmptyParams struct{}

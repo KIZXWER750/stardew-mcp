@@ -612,7 +612,7 @@ public class GameStateSerializer
             FruitTree => "Axe",
             Grass => "Scythe",
             Bush => "Axe",
-            HoeDirt hoeDirt when hoeDirt.crop != null && hoeDirt.crop.fullyGrown.Value => "Scythe", // Harvest
+            HoeDirt hoeDirt when CropReady(hoeDirt.crop) && hoeDirt.crop?.GetData()?.HarvestMethod.ToString() == "Scythe" => "Scythe",
             _ => null
         };
     }
@@ -868,11 +868,14 @@ public class GameStateSerializer
                         featureInfo.HasCrop = hoeDirt.crop != null;
                         if (hoeDirt.crop != null)
                         {
-                            featureInfo.CropName = hoeDirt.crop.indexOfHarvest.Value.ToString();
+                            string harvestId = hoeDirt.crop.indexOfHarvest.Value;
+                            featureInfo.CropName = harvestId;
+                            try { featureInfo.CropName = ItemRegistry.Create(harvestId).DisplayName; } catch { }
                             featureInfo.CropPhase = hoeDirt.crop.currentPhase.Value;
-                            featureInfo.DaysUntilHarvest = hoeDirt.crop.dayOfCurrentPhase.Value;
-                            featureInfo.IsReadyForHarvest = hoeDirt.crop.fullyGrown.Value;
+                            featureInfo.DaysUntilHarvest = CropDaysRemaining(hoeDirt.crop);
+                            featureInfo.IsReadyForHarvest = CropReady(hoeDirt.crop);
                             featureInfo.IsDead = hoeDirt.crop.dead.Value;
+                            featureInfo.HarvestMethod = hoeDirt.crop.GetData()?.HarvestMethod.ToString() ?? "UNKNOWN";
                         }
                     }
                     else if (feature is Bush bush)
@@ -892,6 +895,21 @@ public class GameStateSerializer
         catch { /* Ignore concurrent modification errors */ }
 
         return features;
+    }
+
+    private static bool CropReady(Crop? crop) => crop != null && !crop.dead.Value && crop.phaseDays.Count > 0
+        && crop.currentPhase.Value >= crop.phaseDays.Count - 1
+        && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0);
+
+    private static int CropDaysRemaining(Crop crop)
+    {
+        if (CropReady(crop)) return 0;
+        if (crop.phaseDays.Count < 2) return 0;
+        int lastGrowthPhase = crop.phaseDays.Count - 2;
+        int phase = Math.Clamp(crop.currentPhase.Value, 0, lastGrowthPhase);
+        int remaining = Math.Max(0, crop.phaseDays[phase] - Math.Max(0, crop.dayOfCurrentPhase.Value));
+        for (int i = phase + 1; i <= lastGrowthPhase; i++) remaining += Math.Max(0, crop.phaseDays[i]);
+        return Math.Clamp(remaining, 0, 28);
     }
 
     private string GetTerrainFeatureType(TerrainFeature feature)
@@ -1640,6 +1658,7 @@ public class NearbyTerrainFeature
     public int DaysUntilHarvest { get; set; }
     public bool IsReadyForHarvest { get; set; }
     public bool IsDead { get; set; }
+    public string HarvestMethod { get; set; } = "";
     public int GrassType { get; set; }
     public string? RequiredTool { get; set; }
     public int HitsRequired { get; set; } = 1; // Number of tool hits to destroy

@@ -284,19 +284,24 @@ public sealed class IngameAgent
         }
         if(host!=null && host.HasExited) {Shutdown();Status="서버 종료됨 · 명령창에서 재연결하세요";}
         if(stopping && (DateTime.UtcNow-stopAt).TotalSeconds>10) {Shutdown();Status="작업 종료 지연으로 서버 정리됨 · 재연결 필요";}
-        if(host==null && !string.IsNullOrWhiteSpace(pendingBedtimeGoal)) StartHost();
+        if(host==null && (!string.IsNullOrWhiteSpace(pendingBedtimeGoal)
+            || executor.GetDueGoalWakeupPrompt()!="" || executor.HasPendingGoalPlanAutomation())) StartHost();
         TryStartPendingBedtime();
         if(!Busy && Ready && Context.IsWorldReady && Game1.activeClickableMenu==null
             && !Game1.eventUp && !Game1.player.UsingTool && Game1.player.CanMove
             && string.IsNullOrWhiteSpace(pendingBedtimeGoal)) {
-            string dayAdvance=executor.GetPendingGoalPlanDayAdvancePrompt();
-            if(dayAdvance!="" && StartGoal(dayAdvance,false,true)) executor.MarkGoalPlanDayAdvanceDispatched();
+            string wakeup=executor.GetDueGoalWakeupPrompt();
+            if(wakeup!="" && StartGoal(wakeup,false,true)) executor.MarkGoalWakeupDispatched();
             else {
-                string planResume=executor.GetPendingGoalPlanExecutionPrompt();
-                if(planResume!="" && StartGoal(planResume,false,true)) executor.MarkGoalPlanExecutionDispatched();
+                string dayAdvance=executor.GetPendingGoalPlanDayAdvancePrompt();
+                if(dayAdvance!="" && StartGoal(dayAdvance,false,true)) executor.MarkGoalPlanDayAdvanceDispatched();
                 else {
-                    string resume=executor.GetPendingTreeGoal();
-                    if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+                    string planResume=executor.GetPendingGoalPlanExecutionPrompt();
+                    if(planResume!="" && StartGoal(planResume,false,true)) executor.MarkGoalPlanExecutionDispatched();
+                    else {
+                        string resume=executor.GetPendingTreeGoal();
+                        if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+                    }
                 }
             }
         }

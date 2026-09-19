@@ -85,6 +85,8 @@ Check(GoalSchema.CanTransition(GoalStatuses.AwaitingUser,GoalStatuses.Active),"A
 Check(!GoalSchema.CanTransition(GoalStatuses.Completed,GoalStatuses.Active),"Completed goal must not restart implicitly");
 Check(GoalQuestionPolicy.Fingerprint(" 씨앗 구매를 허용할까요? ")==GoalQuestionPolicy.Fingerprint("씨앗 구매를 허용할까요"),"Question fingerprint must ignore spacing and punctuation");
 Check(GoalQuestionPolicy.Fingerprint("buy_seeds, farm_crops 행동 허용을 검토할까요?")==GoalQuestionPolicy.Fingerprint("farm_crops와 buy_seeds를 허용하시겠습니까?"),"Equivalent action-authorization questions must share a semantic fingerprint");
+Check(GoalQuestionPolicy.IsRoutineOperationalChoice("밀과 블루베리 중 어떤 씨앗을 몇 개 살까요?"),"Seed type and quantity must be an autonomous routine choice");
+Check(GoalQuestionPolicy.IsRoutineOperationalChoice("피에르가 닫혔는데 내일까지 기다릴까요?"),"Normal shop timing must be an autonomous routine choice");
 var duplicateQuestionGoal=GoalSchema.Normalize(new GoalDocument{Goals=new(){new LongTermGoal{Id="duplicate-question",Status=GoalStatuses.AwaitingUser,Summary="Ask once",Money=new MoneyGoalSpec{TargetValue=100},
     QuestionHistory=new(){new GoalQuestion{Id="answered",Prompt="buy_seeds, farm_crops 행동을 허용할까요?",Status="answered",Answer="모두 허용",AnsweredAtUtc="2026-09-20T00:00:00Z"}},
     PendingQuestion=new GoalQuestion{Id="pending",Prompt=" buy_seeds, farm_crops 행동을 허용할까요 ?",Status="pending"}}}}).Goals.Single();
@@ -104,10 +106,12 @@ Check(GoalPlanPolicy.Select(new[]{quick,profitable},"fastest",1000)?.Id=="sell",
 Check(GoalPlanPolicy.Select(new[]{quick,profitable},"highest_profit",1000)?.Id=="crop","Highest-profit strategy must prefer net profit");
 Check(GoalPlanPolicy.Select(new[]{quick,profitable},"balanced",1000)?.Id=="crop","Balanced strategy must prefer a candidate covering the remaining target");
 var migratedGoalDocument=GoalSchema.Normalize(new GoalDocument{SchemaVersion=1,Goals=new(){new LongTermGoal{Id="planned",Summary="Plan",Money=new MoneyGoalSpec{TargetValue=100}}}});
-Check(migratedGoalDocument.SchemaVersion==3 && migratedGoalDocument.Goals[0].Plan.Status==GoalPlanStatuses.None,"Goal schema v1 must migrate to execution plan schema v3");
+Check(migratedGoalDocument.SchemaVersion==4 && migratedGoalDocument.Goals[0].Plan.Status==GoalPlanStatuses.None,"Goal schema v1 must migrate to wakeup and adaptive crop-plan schema v4");
 Check(GoalPlanPolicy.RectangleForTiles(16)==(4,4),"Sixteen planned tiles must bind to a 4x4 rectangle");
 Check(GoalPlanPolicy.RectangleForTiles(15).Width*GoalPlanPolicy.RectangleForTiles(15).Height==15,"Planned plot rectangle must preserve the requested tile count when factorable");
 Check(GoalPlanPolicy.NormalizeGrowthDays(99999)==28,"Installed crop phase sentinels must not create unbounded daily plan steps");
+Check(GoalPlanPolicy.RemainingGrowthDays(new[]{1,1,1,1,99999},0,0)==4,"Final crop phase sentinel must be excluded from wheat growth planning");
+Check(GoalPlanPolicy.RemainingGrowthDays(new[]{1,1,1,1,99999},2,0)==2,"Live crop phase must produce only its actual remaining growth days");
 Check(!GoalPlanPolicy.HasSafeShape(new GoalExecutionPlan{Steps=Enumerable.Range(0,65).Select(_=>new GoalPlanStep()).ToList()}),"Oversized persisted plans must be invalidated before returning them to the AI");
 var sleepGoal=new LongTermGoal{Status=GoalStatuses.Active,Constraints=new GoalConstraints{AllowDailyReturnHome=true,AllowDailySleep=true},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Waiting,LastDayAdvanceDispatchDayIndex=-1}};
 var tomorrowStep=new GoalPlanStep{DayIndex=13};
@@ -116,12 +120,16 @@ sleepGoal.Plan.LastDayAdvanceDispatchDayIndex=12;
 Check(!GoalPlanPolicy.CanAutoAdvanceDay(sleepGoal,tomorrowStep,12),"A failed day-advance run must not loop again on the same day");
 var executingGoal=new LongTermGoal{Id="executing",Summary="Execute",Money=new MoneyGoalSpec{TargetValue=5000},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Waiting,Revision=3,
     Plot=new GoalPlanPlot{X=10,Y=12,Width=4,Height=4},Steps=new(){new GoalPlanStep{Id="step-01",Status=GoalPlanStepStatuses.InProgress,LeaseId="lease",AttemptCount=1}}}};
-var restoredExecution=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{SchemaVersion=3,Goals=new(){executingGoal}}))!).Goals.Single();
+var restoredExecution=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{SchemaVersion=4,Goals=new(){executingGoal}}))!).Goals.Single();
 Check(restoredExecution.Plan.Status==GoalPlanStatuses.Waiting && restoredExecution.Plan.Plot?.X==10,"Persistent execution must retain waiting state and fixed plot");
 Check(restoredExecution.Plan.Steps[0].LeaseId=="lease" && restoredExecution.Plan.Steps[0].AttemptCount==1,"Persistent execution must retain an in-progress lease without replaying it");
 var migratedPlan=GoalSchema.Normalize(new GoalDocument{SchemaVersion=2,Goals=new(){new LongTermGoal{Id="old-plan",Summary="Old",Money=new MoneyGoalSpec{TargetValue=100},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Ready}}}}).Goals.Single();
 Check(migratedPlan.Plan.Status==GoalPlanStatuses.Stale && migratedPlan.Plan.BlockedReason=="MIGRATED_REPLAN_REQUIRED","Pre-execution plans must require one refresh after schema v3 migration");
+var cropScheduleMigration=GoalSchema.Normalize(new GoalDocument{SchemaVersion=3,Goals=new(){new LongTermGoal{Id="old-crop-plan",Summary="Old crop",Money=new MoneyGoalSpec{TargetValue=100},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Waiting}}}}).Goals.Single();
+Check(cropScheduleMigration.Plan.Status==GoalPlanStatuses.Stale && cropScheduleMigration.Plan.BlockedReason=="CROP_SCHEDULE_MIGRATION_REPLAN_REQUIRED","Schema v3 crop plans must replan to remove sentinel-length watering schedules");
+var wakeupDocument=GoalSchema.Normalize(new GoalDocument{SchemaVersion=4,Wakeups=new(){new GoalWakeup{Id="shop-open",GoalId="money",Prompt="Resume seed purchase",NotBeforeDayIndex=33,NotBeforeTime=900,MinimumEnergy=20,Status="scheduled"}}});
+Check(wakeupDocument.Wakeups.Single().NotBeforeTime==900 && wakeupDocument.Wakeups.Single().Status=="scheduled","Conditional AI wakeups must survive schema normalization");
 var timedStep=new GoalPlanStep{Id="shop",NotBeforeTime=900};
 var restoredTimedStep=System.Text.Json.JsonSerializer.Deserialize<GoalPlanStep>(System.Text.Json.JsonSerializer.Serialize(timedStep));
 Check(restoredTimedStep?.NotBeforeTime==900,"A shop-opening resume time must persist across save and reload");
-Console.WriteLine("58 policy, memory, knowledge, goal and economy regression checks passed.");
+Console.WriteLine("64 policy, memory, knowledge, goal and economy regression checks passed.");

@@ -886,7 +886,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("plant", p)
 		})
-	harvestPlotTool := copilot.DefineTool("harvest_plot", "Harvest ready crops only, verify crop changes. Preserve immature crops. Reports yield inventory deltas and drops separately. No replanting. Returns terminal structured task result; executes all movement internally.",
+	harvestPlotTool := copilot.DefineTool("harvest_plot", "Harvest ready crops only and select the installed crop data's required method per tile: Grab interaction for ordinary crops or Scythe for wheat, amaranth, kale and any other scythe-harvest crop. Verify crop changes, preserve immature crops, and report inventory/debris deltas. No replanting. Executes all movement internally.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
@@ -923,6 +923,14 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		a.toolMutex.Lock()
 		defer a.toolMutex.Unlock()
 		return farmReadCommand("crop_sell", v)
+	})
+	freeSlotTool := copilot.DefineTool("free_inventory_slot_at_pierre", "When an authorized goal needs an inventory slot for a Pierre purchase and inventory is full, sell exactly one whole Pierre-accepted unprotected stack. The game selects the lowest unit value, then lowest total stack value, excludes tools/quest/special/preserved IDs, and verifies money plus the empty slot. Requires Pierre's open shop.", func(p GoalIDParams, inv copilot.ToolInvocation) (string, error) {
+		if strings.TrimSpace(p.GoalID) == "" {
+			return "TASK_BLOCKED: goal_id required", nil
+		}
+		a.toolMutex.Lock()
+		defer a.toolMutex.Unlock()
+		return farmReadCommand("inventory_free_slot_pierre", map[string]interface{}{"goal_id": p.GoalID})
 	})
 	storageInspectTool := copilot.DefineTool("inspect_storage", "Read nearby ordinary player chest positions. For the actually opened chest, returns exact total item units, occupied/free slots, per-item and per-quality totals, plus quote IDs for every transferable visible stack. No remote access.", func(p ShopEmptyParams, inv copilot.ToolInvocation) (string, error) {
 		return farmReadCommand("storage_inspect", nil)
@@ -1001,13 +1009,13 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
-			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization", "set_goal_daily_life_policy",
+			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization", "set_goal_daily_life_policy", "schedule_goal_wakeup", "cancel_goal_wakeup",
 			"inspect_capability_registry", "assess_economic_state", "analyze_crop_profit_options", "find_profit_opportunities",
 			"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan",
 			"start_goal_plan_execution", "continue_goal_plan_execution", "bind_goal_plan_plot", "report_goal_plan_step",
 			"search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route",
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
-			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
+			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "free_inventory_slot_at_pierre", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
 			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "remove_dead_crops", "clear_area", "till_plot", "restore_tilled_soil", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing", "collect_loose_items",
 			"move_to", "get_surroundings", "interact", "use_tool",
@@ -1019,7 +1027,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + goalToolRules + economicToolRules + goalExecutionRules,
 		},
 		Tools: []copilot.Tool{
-			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
+			shopStatusTool, saleInspectTool, saleTool, freeSlotTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
 			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, removeDeadCropsTool, clearAreaTool, tillPlotTool, restoreTilledSoilTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
 			economicTools[0], economicTools[1], economicTools[2], economicTools[3], economicTools[4], economicTools[5], economicTools[6],
 			// Standard gameplay tools

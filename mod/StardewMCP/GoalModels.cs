@@ -7,6 +7,21 @@ namespace StardewMCP;
 public sealed class GoalDocument : MemoryDocument
 {
     public List<LongTermGoal> Goals { get; set; } = new();
+    public List<GoalWakeup> Wakeups { get; set; } = new();
+}
+
+public sealed class GoalWakeup
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string GoalId { get; set; } = "";
+    public string Prompt { get; set; } = "";
+    public int NotBeforeDayIndex { get; set; }
+    public int NotBeforeTime { get; set; } = 600;
+    public int MinimumEnergy { get; set; }
+    public string RequiredLocation { get; set; } = "";
+    public string Status { get; set; } = "scheduled";
+    public string CreatedAtUtc { get; set; } = "";
+    public string DispatchedAtUtc { get; set; } = "";
 }
 
 public sealed class LongTermGoal
@@ -98,6 +113,22 @@ public static class GoalQuestionPolicy
         return history.Where(p => p.Status == "answered" && !string.IsNullOrWhiteSpace(p.Answer)
                 && Fingerprint(p.Prompt) == fingerprint)
             .OrderByDescending(p => p.AnsweredAtUtc, StringComparer.Ordinal).FirstOrDefault();
+    }
+
+    public static bool IsRoutineOperationalChoice(string prompt)
+    {
+        string lower = (prompt ?? "").ToLowerInvariant();
+        bool seedChoice = (lower.Contains("씨앗") || lower.Contains("seed"))
+            && new[] { "어떤", "종류", "조합", "몇", "수량", "구매", "목록", "which", "quantity", "how many" }.Any(lower.Contains);
+        bool cropRoutine = (lower.Contains("시든") || lower.Contains("죽은 작물") || lower.Contains("dead crop"))
+            && new[] { "제거", "낫", "remove", "scythe" }.Any(lower.Contains);
+        bool shopTiming = (lower.Contains("피에르") || lower.Contains("pierre") || lower.Contains("상점") || lower.Contains("shop"))
+            && new[] { "닫", "수요일", "영업", "기다", "내일", "closed", "wednesday", "open", "wait" }.Any(lower.Contains);
+        bool inventoryChoice = (lower.Contains("인벤토리") || lower.Contains("inventory"))
+            && new[] { "빈 칸", "빈칸", "가장 낮", "판매", "보관", "slot", "lowest", "sell", "store" }.Any(lower.Contains);
+        bool saleChoice = (lower.Contains("판매") || lower.Contains("sell"))
+            && new[] { "어떤", "무엇", "가장 낮", "순서", "which", "what", "lowest", "order" }.Any(lower.Contains);
+        return seedChoice || cropRoutine || shopTiming || inventoryChoice || saleChoice;
     }
 }
 
@@ -216,6 +247,17 @@ public static class GoalPlanPolicy
 
     public static int NormalizeGrowthDays(int value) => Math.Clamp(value, 0, 28);
 
+    public static int RemainingGrowthDays(IReadOnlyList<int> phaseDays, int currentPhase, int dayOfCurrentPhase)
+    {
+        if (phaseDays == null || phaseDays.Count < 2) return 0;
+        int lastGrowthPhase = phaseDays.Count - 2; // final phase is the harvest/regrow sentinel
+        if (currentPhase > lastGrowthPhase) return 0;
+        currentPhase = Math.Clamp(currentPhase, 0, lastGrowthPhase);
+        int remaining = Math.Max(0, phaseDays[currentPhase] - Math.Max(0, dayOfCurrentPhase));
+        for (int i = currentPhase + 1; i <= lastGrowthPhase; i++) remaining += Math.Max(0, phaseDays[i]);
+        return NormalizeGrowthDays(remaining);
+    }
+
     public static bool HasSafeShape(GoalExecutionPlan? plan) => plan != null
         && plan.Steps != null && plan.Steps.Count <= MaxPlanSteps;
 
@@ -289,7 +331,7 @@ public static class GoalStatuses
 
 public static class GoalSchema
 {
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     public static GoalDocument Normalize(GoalDocument? document)
     {
@@ -297,15 +339,24 @@ public static class GoalSchema
         int sourceVersion = document.SchemaVersion;
         if (document.SchemaVersion < 0 || document.SchemaVersion > CurrentVersion)
             throw new InvalidOperationException($"Unsupported goal schema version {document.SchemaVersion}.");
-        if (document.SchemaVersion < 3) document.SchemaVersion = 3;
+        if (document.SchemaVersion < 4) document.SchemaVersion = 4;
         document.Goals ??= new();
+        document.Wakeups ??= new();
+        document.Wakeups = document.Wakeups.Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
+            .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase).Select(p => p.Last()).ToList();
+        foreach (GoalWakeup wakeup in document.Wakeups)
+        {
+            wakeup.Status = wakeup.Status is "scheduled" or "dispatched" or "cancelled" ? wakeup.Status : "cancelled";
+            wakeup.NotBeforeTime = Math.Clamp(wakeup.NotBeforeTime, 600, 2600);
+            wakeup.MinimumEnergy = Math.Max(0, wakeup.MinimumEnergy);
+        }
         document.Goals = document.Goals.Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
             .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase).Select(p => Normalize(p.Last())).ToList();
-        if (sourceVersion is 1 or 2)
+        if (sourceVersion is 1 or 2 or 3)
             foreach (LongTermGoal goal in document.Goals.Where(p => p.Plan.Status is not (GoalPlanStatuses.None or GoalPlanStatuses.Completed)))
             {
                 goal.Plan.Status = GoalPlanStatuses.Stale;
-                goal.Plan.BlockedReason = "MIGRATED_REPLAN_REQUIRED";
+                goal.Plan.BlockedReason = sourceVersion == 3 ? "CROP_SCHEDULE_MIGRATION_REPLAN_REQUIRED" : "MIGRATED_REPLAN_REQUIRED";
                 foreach (GoalPlanStep step in goal.Plan.Steps.Where(p => p.Status == GoalPlanStepStatuses.InProgress))
                 { step.Status = GoalPlanStepStatuses.Pending; step.LeaseId = ""; }
             }

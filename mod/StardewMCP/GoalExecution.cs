@@ -100,6 +100,11 @@ public partial class CommandExecutor
         {
             ResetStepForRetry(step, summary);
             SchedulePausedShopStep(step);
+            if (step.NotBeforeTime > Game1.timeOfDay || step.DayIndex > CurrentDayIndex())
+            {
+                goal.Plan.LastDispatchDayIndex = -1;
+                goal.Plan.LastDispatchStepId = "";
+            }
             goal.Plan.Status = GoalPlanStatuses.Waiting;
             goal.Plan.BlockedReason = "STEP_PAUSED";
             SaveGoalExecution(goal);
@@ -137,6 +142,7 @@ public partial class CommandExecutor
             SaveGoalExecution(goal);
             return FarmReply(command, new { status = "GOAL_COMPLETED", goalId = goal.Id, progress = goal.Progress });
         }
+        AdaptCropPlanToLiveState(goal);
         GoalPlanStep? step = goal.Plan.Steps.OrderBy(p => p.Sequence)
             .FirstOrDefault(p => p.Status is not (GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped));
         if (step == null)
@@ -189,7 +195,7 @@ public partial class CommandExecutor
         var parameters = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in step.Inputs)
         {
-            if (pair.Key is "harvestItemId" or "tiles") continue;
+            if (pair.Key is "harvestItemId" or "harvestMethod" or "tiles") continue;
             if (pair.Key == "seedItemId" && step.Action is not ("buy_shop_item" or "plant_plot")) continue;
             if (pair.Key == "latestWorkTime" && !IsFarmStep(step.Action)) continue;
             string key = pair.Key switch { "seedItemId" when step.Action == "buy_shop_item" => "item_id", "seedItemId" => "seed_item_id",
@@ -212,11 +218,12 @@ public partial class CommandExecutor
         string guidance = step.Action switch
         {
             "select_farm_plot" => "Call find_plot_candidates with the exact planned width/height, choose one returned reachable candidate, then call bind_goal_plan_plot with this lease.",
-            "buy_shop_item" => "Check shop status, follow observed route, open and inspect Pierre's shop, then buy the exact seed and quantity within reserve money. Close the shop afterward.",
+            "buy_shop_item" => "Check shop status, follow observed route, open and inspect Pierre's shop, then buy the exact seed and quantity within reserve money. If inventory is full, call free_inventory_slot_at_pierre for this goal; it sells the lowest-value Pierre-accepted unprotected stack and verifies one free slot. Then inspect the shop again and buy. Close the shop afterward.",
             "sell_crop_stack" => "Inspect fresh sellable crop quotes, check/open Pierre's shop, sell only authorized unprotected whole stacks, close the shop, and verify money increased.",
             "inspect_sellable_crops" => "Call inspect_sellable_crops and retain its exact observed candidates for the sale stage.",
             "get_shop_status" => "Call get_shop_status. If closed, report paused rather than forcing entry or sleeping without authorization.",
             "verify_long_term_goal" => "Call verify_long_term_goal for this exact goal ID and report its live result.",
+            "harvest_plot" => $"Call harvest_plot with the bound parameters. Live crop data requires {StepText(step, "harvestMethod")} harvesting; the farm function must select Grab or Scythe per crop and verify every harvested tile.",
             _ => $"Call {step.Action} with the bound parameters. Follow recovery hints only inside the authorized scope."
         };
         return new { tool = step.Action == "select_farm_plot" ? "find_plot_candidates" : step.Action, parameters, guidance };
@@ -302,11 +309,87 @@ public partial class CommandExecutor
             result.CropTiles++;
             var crop = dirt.crop;
             if (crop.dead.Value) { result.DeadCropTiles++; continue; }
-            if (dirt.state.Value != 1) result.DryCropTiles++;
-            if (!crop.dead.Value && crop.phaseDays.Count > 0 && crop.currentPhase.Value >= crop.phaseDays.Count - 1
-                && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0)) result.ReadyCropTiles++;
+            bool ready = !crop.dead.Value && crop.phaseDays.Count > 0 && crop.currentPhase.Value >= crop.phaseDays.Count - 1
+                && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0);
+            if (ready) result.ReadyCropTiles++;
+            else if (dirt.state.Value != 1) result.DryCropTiles++;
         }
         return result;
+    }
+
+    private void AdaptCropPlanToLiveState(LongTermGoal goal)
+    {
+        if (goal.Plan.Plot == null || goal.Plan.StrategyKind is not ("crop_cycle" or "existing_crop_cycle")) return;
+        GoalFarmSnapshot snapshot = CaptureFarmSnapshot(goal);
+        if (snapshot.CropTiles == 0 || snapshot.DeadCropTiles > 0) return;
+        int today = CurrentDayIndex();
+        GoalPlanStep? harvest = goal.Plan.Steps.OrderBy(p => p.Sequence)
+            .FirstOrDefault(p => p.Action == "harvest_plot" && p.Status is GoalPlanStepStatuses.Pending or GoalPlanStepStatuses.InProgress);
+        if (harvest == null) return;
+        bool changed = false;
+        if (snapshot.ReadyCropTiles > 0)
+        {
+            foreach (GoalPlanStep water in goal.Plan.Steps.Where(p => p.Sequence < harvest.Sequence && p.Action == "water_plot"
+                && p.Status == GoalPlanStepStatuses.Pending))
+            {
+                CompleteStep(water, "Live crop inspection found harvest-ready crops; obsolete watering skipped.", skipped: true);
+                changed = true;
+            }
+            int oldHarvestDay = harvest.DayIndex;
+            foreach (GoalPlanStep tail in goal.Plan.Steps.Where(p => p.Sequence >= harvest.Sequence && p.Status == GoalPlanStepStatuses.Pending))
+            {
+                if (tail.DayIndex == oldHarvestDay || tail == harvest) { tail.DayIndex = today; tail.DayLabel = "오늘"; changed = true; }
+            }
+        }
+        else if (harvest.DayIndex <= today && harvest.Status == GoalPlanStepStatuses.Pending)
+        {
+            int remaining = LivePlotGrowthDays(goal);
+            int delay = Math.Max(1, remaining);
+            int oldDay = harvest.DayIndex;
+            GoalPlanStep? previous = goal.Plan.Steps.Where(p => p.Sequence < harvest.Sequence)
+                .OrderByDescending(p => p.Sequence).FirstOrDefault();
+            var inserted = new List<GoalPlanStep>();
+            for (int day = 0; day < delay && goal.Plan.Steps.Count + inserted.Count < GoalPlanPolicy.MaxPlanSteps; day++)
+            {
+                var water = new GoalPlanStep {
+                    Id = $"live-water-{goal.Plan.Revision}-{today + day}", DayIndex = today + day,
+                    DayLabel = day == 0 ? "오늘" : $"{day}일 후", Action = "water_plot",
+                    Summary = "실시간 성장 상태를 확인하고 미성숙 작물의 마른 칸만 물주기", Conditional = true,
+                    Inputs = new Dictionary<string,string>(harvest.Inputs, StringComparer.OrdinalIgnoreCase)
+                };
+                water.Inputs["latestWorkTime"] = goal.Plan.LatestWorkTime.ToString();
+                if (previous != null) water.DependsOn.Add(previous.Id);
+                inserted.Add(water); previous = water;
+            }
+            int insertionIndex = goal.Plan.Steps.IndexOf(harvest);
+            goal.Plan.Steps.InsertRange(insertionIndex, inserted);
+            harvest.DependsOn = previous == null ? new() : new() { previous.Id };
+            foreach (GoalPlanStep tail in goal.Plan.Steps.Where(p => p.Sequence >= harvest.Sequence && p.Status == GoalPlanStepStatuses.Pending))
+            {
+                tail.DayIndex = Math.Max(today + delay, tail.DayIndex + (today + delay - oldDay));
+                tail.DayLabel = $"{tail.DayIndex - today}일 후";
+            }
+            for (int i = 0; i < goal.Plan.Steps.Count; i++) goal.Plan.Steps[i].Sequence = i + 1;
+            changed = true;
+        }
+        if (changed)
+        {
+            goal.Plan.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
+            _goalsDirty = true;
+            FlushLongTermMemory();
+        }
+    }
+
+    private int LivePlotGrowthDays(LongTermGoal goal)
+    {
+        GoalPlanPlot plot = goal.Plan.Plot!;
+        if (Game1.getFarm() is not Farm farm) return 1;
+        int remaining = 0;
+        for (int y = plot.Y; y < plot.Y + plot.Height; y++) for (int x = plot.X; x < plot.X + plot.Width; x++)
+            if (farm.terrainFeatures.TryGetValue(new Vector2(x, y), out var feature) && feature is HoeDirt dirt
+                && dirt.crop != null && !dirt.crop.dead.Value)
+                remaining = Math.Max(remaining, ExistingCropDaysRemaining(dirt.crop));
+        return remaining;
     }
 
     private int InventoryQuantity(string qualifiedId) => string.IsNullOrWhiteSpace(qualifiedId) ? 0
@@ -391,6 +474,13 @@ public partial class CommandExecutor
     public string GetPendingGoalPlanExecutionPrompt()
     {
         if (!_memoryLoaded || !Context.IsWorldReady) return "";
+        LongTermGoal? stale = _goals.Goals.FirstOrDefault(p => p.Status == GoalStatuses.Active && p.Plan.Status == GoalPlanStatuses.Stale);
+        if (stale != null)
+        {
+            if (stale.Plan.LastDispatchDayIndex == CurrentDayIndex() && stale.Plan.LastDispatchStepId == "__replan__") return "";
+            return "REFRESH PERSISTENT GOAL PLAN\nGoal ID: " + stale.Id + "\nThe saved plan was invalidated because crop scheduling rules or live economic state changed. "
+                + "Call inspect_long_term_goal, refresh_goal_plan, then start_goal_plan_execution. Use live crop phase/readiness and continue without asking routine implementation questions.";
+        }
         LongTermGoal? goal = _goals.Goals.FirstOrDefault(p => p.Status == GoalStatuses.Active
             && p.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting);
         if (goal == null) return "";
@@ -415,10 +505,17 @@ public partial class CommandExecutor
             .FirstOrDefault(p => p.Status is not (GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped));
         int today = CurrentDayIndex();
         if (goal == null || !GoalPlanPolicy.CanAutoAdvanceDay(goal, step, today)) return "";
+        bool cleanupAuthorized = GoalActionAuthorized(goal, "clear_area") || GoalActionAuthorized(goal, "remove_wild_trees")
+            || GoalActionAuthorized(goal, "use_tools");
+        int halfEnergy = (int)Math.Ceiling(Game1.player.MaxStamina * 0.5f);
+        string cleanup = cleanupAuthorized && Game1.player.Stamina > halfEnergy && Game1.timeOfDay < goal.Plan.LatestWorkTime
+            ? $"\nBefore returning home, use safe observed farm clearing work within the saved permissions while useful targets remain. Continue bounded tree/obstacle jobs instead of stopping after one target, with minimum_energy={halfEnergy}; stop when energy is at or below about 50% ({halfEnergy}), the latest work time approaches, inventory is full, or no safe target remains."
+            : "";
         return "ADVANCE PERSISTENT GOAL TO ITS NEXT PLANNED DAY\nGoal ID: " + goal.Id
             + "\nPlan revision: " + goal.Plan.Revision + "\nNext step day index: " + step!.DayIndex
             + "\nThe saved goal policy explicitly authorizes returning home and sleeping after today's planned work. "
-            + "Do not execute or replan farming or trading steps in this run. Call find_home_route, then return_home exactly once, then sleep_until_morning exactly once. "
+            + "Do not execute or replan the crop/trading plan in this run." + cleanup
+            + "\nAfter optional cleanup, call find_home_route, then return_home exactly once, then sleep_until_morning exactly once. "
             + "The sleep tool must verify the changed date, stable controllable morning, and advancing clock. "
             + "After that verification, finish with GOAL WAITING: next morning verified; persisted plan is due for automatic resume.";
     }
@@ -438,7 +535,11 @@ public partial class CommandExecutor
     public void MarkGoalPlanExecutionDispatched()
     {
         LongTermGoal? goal = _goals.Goals.FirstOrDefault(p => p.Status == GoalStatuses.Active
-            && p.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting);
+            && p.Plan.Status is GoalPlanStatuses.Executing or GoalPlanStatuses.Waiting or GoalPlanStatuses.Stale);
+        if (goal?.Plan.Status == GoalPlanStatuses.Stale)
+        {
+            goal.Plan.LastDispatchDayIndex = CurrentDayIndex(); goal.Plan.LastDispatchStepId = "__replan__"; SaveGoalExecution(goal); return;
+        }
         GoalPlanStep? step = goal?.Plan.Steps.OrderBy(p => p.Sequence)
             .FirstOrDefault(p => p.Status is not (GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped));
         if (goal == null || step == null) return;

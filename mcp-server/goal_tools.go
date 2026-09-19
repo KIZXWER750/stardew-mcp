@@ -18,6 +18,9 @@ Pause, resume or cancel a goal only when the user requested that state change; c
 If essential information cannot be safely inferred, create a draft/active goal with the known scope and call request_goal_input once with one concise question and at most six options. The game will show a dedicated response window. After requesting input, stop this run and do not guess.
 Do not ask through ordinary final chat when request_goal_input is available. A later continuation contains the saved answer; inspect the goal before continuing.
 Never repeat an answered question. request_goal_input returns ALREADY_ANSWERED with the saved answer when the normalized question matches question history; reuse that answer and do not call request_goal_input again for the same issue. If more input is truly required, ask a materially different question that names the newly unresolved condition.
+Routine implementation choices are yours when their action category is authorized: choose the crop/seed, affordable quantity, ordinary crop care, safe shop timing, and the lowest-value unprotected sale needed for inventory space. Do not ask the user to make those choices. If request_goal_input returns AUTONOMOUS_DECISION_REQUIRED, inspect live state and decide.
+When progress depends on a future day/time, energy recovery, or location, call schedule_goal_wakeup with a concrete continuation prompt before returning GOAL WAITING. The in-game host invokes that prompt once after all conditions are true; do not rely on the user to type another command.
+When normal farm clearing is authorized and planned work is finished, use spare energy on safe observed trees or removable obstacles before sleeping. By default continue bounded clearing jobs until energy is near 50% of maximum, the latest work time approaches, inventory fills, or no safe target remains; completing one target alone is not a reason to stop.
 For every newly created broad money goal, call build_goal_plan even when the inventory sale inspection is empty. Existing live farm crops are a distinct strategy: tend_existing_crops permits watering and harvesting only already-planted crops, while farm_crops permits preparing and planting a new plot. If the user allows crop selling and forbids only seed purchases or new farming, record tend_existing_crops as within scope; never widen that to buy_seeds or farm_crops. Do not end in ordinary TASK_BLOCKED merely because the inventory is empty. Preserve an explicit prohibition unless the dedicated answer changes it.
 Only after an answered saved question explicitly authorizes its named actions, use apply_goal_action_authorization with that question ID and the exact named actions, then refresh_goal_plan.
 `
@@ -62,6 +65,19 @@ type GoalDailyLifePolicyParams struct {
 	GoalID               string `json:"goal_id"`
 	AllowDailyReturnHome bool   `json:"allow_daily_return_home" jsonschema:"Persist explicit permission to return home after daily work"`
 	AllowDailySleep      bool   `json:"allow_daily_sleep" jsonschema:"Persist explicit permission to sleep and advance to the next planned day"`
+}
+
+type GoalWakeupParams struct {
+	GoalID            string `json:"goal_id"`
+	Prompt            string `json:"prompt" jsonschema:"Concrete continuation instruction delivered back to the AI when due"`
+	NotBeforeDayIndex int    `json:"not_before_day_index,omitempty" jsonschema:"Absolute DaysPlayed index; omit for today"`
+	NotBeforeTime     int    `json:"not_before_time,omitempty" jsonschema:"Game time HHMM, 0600..2600; omit for now"`
+	MinimumEnergy     int    `json:"minimum_energy,omitempty" jsonschema:"Minimum player energy before dispatch"`
+	RequiredLocation  string `json:"required_location,omitempty" jsonschema:"Optional exact game location name"`
+}
+
+type GoalWakeupCancelParams struct {
+	WakeupID string `json:"wakeup_id"`
 }
 
 func goalCommand(action string, values map[string]interface{}) (string, error) {
@@ -122,6 +138,25 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 			}
 			return goalCommand("goal_daily_life_policy", map[string]interface{}{"goal_id": p.GoalID,
 				"allow_daily_return_home": p.AllowDailyReturnHome, "allow_daily_sleep": p.AllowDailySleep})
+		}),
+		copilot.DefineTool("schedule_goal_wakeup", "Persist a one-shot AI callback for a long-term goal. When the saved day/time/energy/location conditions are all true, the in-game host starts the AI and delivers the saved prompt automatically, including after restart. Use this before GOAL WAITING for future conditions.", func(p GoalWakeupParams, _ copilot.ToolInvocation) (string, error) {
+			if strings.TrimSpace(p.GoalID) == "" || strings.TrimSpace(p.Prompt) == "" {
+				return "TASK_BLOCKED: goal_id and prompt required", nil
+			}
+			values := map[string]interface{}{"goal_id": p.GoalID, "prompt": p.Prompt, "minimum_energy": p.MinimumEnergy, "required_location": p.RequiredLocation}
+			if p.NotBeforeDayIndex != 0 {
+				values["not_before_day_index"] = p.NotBeforeDayIndex
+			}
+			if p.NotBeforeTime != 0 {
+				values["not_before_time"] = p.NotBeforeTime
+			}
+			return goalCommand("goal_wakeup_schedule", values)
+		}),
+		copilot.DefineTool("cancel_goal_wakeup", "Cancel one scheduled AI callback by wakeup_id. Executes no gameplay action.", func(p GoalWakeupCancelParams, _ copilot.ToolInvocation) (string, error) {
+			if strings.TrimSpace(p.WakeupID) == "" {
+				return "TASK_BLOCKED: wakeup_id required", nil
+			}
+			return goalCommand("goal_wakeup_cancel", map[string]interface{}{"wakeup_id": p.WakeupID})
 		}),
 	}
 }

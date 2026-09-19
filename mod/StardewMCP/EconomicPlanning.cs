@@ -18,6 +18,7 @@ public partial class CommandExecutor
         public string SeedName { get; set; } = "";
         public string HarvestItemId { get; set; } = "";
         public string HarvestName { get; set; } = "";
+        public string HarvestMethod { get; set; } = "Grab";
         public string Source { get; set; } = "";
         public int AvailableSeeds { get; set; }
         public int PaidSeeds { get; set; }
@@ -75,7 +76,12 @@ public partial class CommandExecutor
             string id = MemberText(row, "ItemId");
             int price = MemberInt(row, "Price", -1);
             string trade = MemberText(row, "TradeItemId");
-            if (id != "" && price >= 0 && trade == "") result[EconomicItemId(id)] = price;
+            if (id != "" && price < 0)
+            {
+                try { if (ItemRegistry.Create(EconomicItemId(id)) is StardewValley.Object item) price = item.salePrice(); }
+                catch { }
+            }
+            if (id != "" && price > 0 && trade == "") result[EconomicItemId(id)] = price;
         }
         return result;
     }
@@ -122,7 +128,8 @@ public partial class CommandExecutor
             result.Add(new CropOption { SeedItemId = seedId, SeedName = seed.DisplayName, HarvestItemId = harvestId,
                 HarvestName = harvest.DisplayName, Source = owned >= tiles ? "inventory" : owned > 0 ? "inventory_and_pierre_catalog" : "pierre_catalog",
                 AvailableSeeds = owned, PaidSeeds = paidSeeds, Tiles = tiles, SeedPrice = price, UnitSellPrice = harvestObject.sellToStorePrice(),
-                GrowthDays = growth, RegrowDays = MemberInt(data, "RegrowDays", -1), ExpectedYield = expectedYield, Projection = projection });
+                GrowthDays = growth, RegrowDays = MemberInt(data, "RegrowDays", -1),
+                HarvestMethod = MemberText(data, "HarvestMethod"), ExpectedYield = expectedYield, Projection = projection });
         }
         return result.OrderByDescending(p => p.Projection.ExpectedProfit).ThenBy(p => p.GrowthDays).Take(24).ToList();
     }
@@ -131,7 +138,7 @@ public partial class CommandExecutor
     {
         string[] tools = { "Hoe", "Pickaxe", "Axe", "Watering Can", "Scythe" };
         var toolState = tools.Select(p => new { name = p, available = FarmToolSlot(p) >= 0 }).ToList();
-        return FarmReply(command, new { status = "OBSERVED", version = "1.19.9", toolState,
+        return FarmReply(command, new { status = "OBSERVED", version = "1.20.0", toolState,
             capabilities = new object[] {
                 new {id="goal.money.persistence",supported=true,mode="verified_state"},
                 new {id="economy.observe",supported=true,mode="read_only"},

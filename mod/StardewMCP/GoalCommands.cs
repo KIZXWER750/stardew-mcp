@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using StardewModdingAPI;
 using StardewValley;
 
 namespace StardewMCP;
@@ -70,10 +71,74 @@ public partial class CommandExecutor
             goal.Constraints.AllowDailySleep, note = "The policy persists across days and restarts. No gameplay action was executed." });
     }
 
+    private CommandResponse ScheduleGoalWakeupCommand(GameCommand command)
+    {
+        LongTermGoal goal = FindGoal(ShopText(command, "goal_id"));
+        if (GoalStatuses.IsTerminal(goal.Status)) throw new InvalidOperationException("Cannot schedule a wakeup for a terminal goal.");
+        string prompt = ShopText(command, "prompt").Trim();
+        if (prompt.Length is < 1 or > 2000) throw new InvalidOperationException("Wakeup prompt must be 1..2000 characters.");
+        int day = command.Params.ContainsKey("not_before_day_index") ? ShopInt(command, "not_before_day_index") : CurrentDayIndex();
+        int time = command.Params.ContainsKey("not_before_time") ? ShopInt(command, "not_before_time") : Game1.timeOfDay;
+        int energy = command.Params.ContainsKey("minimum_energy") ? ShopInt(command, "minimum_energy") : 0;
+        string location = ShopText(command, "required_location").Trim();
+        if (day < CurrentDayIndex() || time < 600 || time > 2600 || time % 100 >= 60 || energy < 0)
+            throw new InvalidOperationException("Invalid wakeup day, time, or energy condition.");
+        foreach (GoalWakeup old in _goals.Wakeups.Where(p => p.GoalId.Equals(goal.Id, StringComparison.OrdinalIgnoreCase)
+            && p.Status == "scheduled" && GoalQuestionPolicy.Fingerprint(p.Prompt) == GoalQuestionPolicy.Fingerprint(prompt)))
+            old.Status = "cancelled";
+        var wakeup = new GoalWakeup { GoalId = goal.Id, Prompt = prompt, NotBeforeDayIndex = day,
+            NotBeforeTime = time, MinimumEnergy = energy, RequiredLocation = location,
+            CreatedAtUtc = DateTime.UtcNow.ToString("O") };
+        _goals.Wakeups.Add(wakeup); _goalsDirty = true; FlushLongTermMemory();
+        return FarmReply(command, new { status = "SCHEDULED", wakeup,
+            note = "The in-game host will invoke the AI once when every saved condition is true, including after a restart." });
+    }
+
+    private CommandResponse CancelGoalWakeupCommand(GameCommand command)
+    {
+        string id = ShopText(command, "wakeup_id").Trim();
+        GoalWakeup wakeup = _goals.Wakeups.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Unknown wakeup_id.");
+        wakeup.Status = "cancelled"; _goalsDirty = true; FlushLongTermMemory();
+        return FarmReply(command, new { status = "CANCELLED", wakeupId = wakeup.Id });
+    }
+
+    public string GetDueGoalWakeupPrompt()
+    {
+        if (!_memoryLoaded || !Context.IsWorldReady) return "";
+        int today = CurrentDayIndex();
+        GoalWakeup? wakeup = _goals.Wakeups.Where(p => p.Status == "scheduled" && p.NotBeforeDayIndex <= today
+                && (p.NotBeforeDayIndex < today || Game1.timeOfDay >= p.NotBeforeTime)
+                && Game1.player.Stamina >= p.MinimumEnergy
+                && (p.RequiredLocation == "" || p.RequiredLocation.Equals(Game1.currentLocation?.Name, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(p => p.NotBeforeDayIndex).ThenBy(p => p.NotBeforeTime).FirstOrDefault();
+        if (wakeup == null) return "";
+        LongTermGoal? goal = _goals.Goals.FirstOrDefault(p => p.Id.Equals(wakeup.GoalId, StringComparison.OrdinalIgnoreCase));
+        if (goal == null || GoalStatuses.IsTerminal(goal.Status)) { wakeup.Status = "cancelled"; _goalsDirty = true; FlushLongTermMemory(); return ""; }
+        return "PERSISTENT AI WAKEUP\nWakeup ID: " + wakeup.Id + "\nGoal ID: " + wakeup.GoalId
+            + "\nSaved prompt: " + wakeup.Prompt
+            + "\nThe in-game host verified the saved day/time/energy/location conditions. Inspect live state and the goal, then continue autonomously within its saved permissions. Do not ask about routine implementation choices.";
+    }
+
+    public void MarkGoalWakeupDispatched()
+    {
+        string prompt = GetDueGoalWakeupPrompt();
+        if (prompt == "") return;
+        string id = prompt.Split('\n').FirstOrDefault(p => p.StartsWith("Wakeup ID: ", StringComparison.Ordinal))?.Substring(11).Trim() ?? "";
+        GoalWakeup? wakeup = _goals.Wakeups.FirstOrDefault(p => p.Id == id);
+        if (wakeup == null) return;
+        wakeup.Status = "dispatched"; wakeup.DispatchedAtUtc = DateTime.UtcNow.ToString("O");
+        _goalsDirty = true; FlushLongTermMemory();
+    }
+
     private CommandResponse RequestGoalQuestionCommand(GameCommand command)
     {
         string goalId = ShopText(command, "goal_id");
         string prompt = ShopText(command, "question");
+        LongTermGoal current = FindGoal(goalId);
+        if (GoalQuestionPolicy.IsRoutineOperationalChoice(prompt) && GoalHasRoutineDecisionAuthority(current, prompt))
+            return FarmReply(command, new { status = "AUTONOMOUS_DECISION_REQUIRED", goalId, questionSuppressed = true,
+                note = "This is an authorized routine implementation choice. Choose seeds, quantity, ordinary crop care, shop timing, or the lowest-value safe inventory sale from live observations and continue without asking the user." });
         GoalQuestion? answered = FindAnsweredGoalQuestion(goalId, prompt);
         if (answered != null)
             return FarmReply(command, new { status = "ALREADY_ANSWERED", goalId, duplicateSuppressed = true,
@@ -86,6 +151,23 @@ public partial class CommandExecutor
             status = "USER_INPUT_REQUIRED", goalId = goal.Id, question = goal.PendingQuestion,
             note = "The in-game response window will open after the current AI run stops. End this run without guessing an answer."
         });
+    }
+
+    private static bool GoalHasRoutineDecisionAuthority(LongTermGoal goal, string prompt)
+    {
+        string lower = (prompt ?? "").ToLowerInvariant();
+        HashSet<string> allowed = goal.Constraints.AuthorizedActions.Select(NormalizeGoalAction)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (new[] { "all", "all_actions", "autonomous_earning", "earn_money", "profit_strategy" }.Any(allowed.Contains)) return true;
+        if ((lower.Contains("씨앗") || lower.Contains("seed")) && allowed.Contains("buy_seeds") && allowed.Contains("farm_crops")) return true;
+        if ((lower.Contains("시든") || lower.Contains("죽은 작물") || lower.Contains("dead crop")) && allowed.Contains("farm_crops")) return true;
+        if ((lower.Contains("피에르") || lower.Contains("pierre") || lower.Contains("상점") || lower.Contains("shop"))
+            && (allowed.Contains("buy_seeds") || allowed.Contains("sell_crops")) && goal.Constraints.AllowDailySleep) return true;
+        if ((lower.Contains("인벤토리") || lower.Contains("inventory"))
+            && (allowed.Contains("manage_inventory") || allowed.Contains("sell_crops"))) return true;
+        if ((lower.Contains("판매") || lower.Contains("sell"))
+            && (allowed.Contains("manage_inventory") || allowed.Contains("sell_crops"))) return true;
+        return false;
     }
 
     private CommandResponse ApplyGoalActionAuthorizationCommand(GameCommand command)

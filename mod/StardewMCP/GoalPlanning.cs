@@ -19,6 +19,7 @@ public partial class CommandExecutor
         public string HarvestName { get; init; } = "";
         public int UnitPrice { get; init; }
         public int Days { get; init; }
+        public string HarvestMethod { get; init; } = "Grab";
     }
 
     private CommandResponse BuildGoalPlanCommand(GameCommand command, bool refresh)
@@ -130,7 +131,8 @@ public partial class CommandExecutor
                     ["seedItemId"] = option.SeedItemId, ["seedName"] = option.SeedName, ["harvestItemId"] = option.HarvestItemId,
                     ["tiles"] = option.Tiles.ToString(), ["ownedSeeds"] = option.AvailableSeeds.ToString(), ["paidSeeds"] = option.PaidSeeds.ToString(),
                     ["growthDays"] = option.GrowthDays.ToString(), ["regrowDays"] = option.RegrowDays.ToString(),
-                    ["harvests"] = option.Projection.Harvests.ToString(), ["seedPrice"] = option.SeedPrice.ToString()
+                    ["harvests"] = option.Projection.Harvests.ToString(), ["seedPrice"] = option.SeedPrice.ToString(),
+                    ["harvestMethod"] = string.IsNullOrWhiteSpace(option.HarvestMethod) ? "Grab" : option.HarvestMethod
                 }
             });
         }
@@ -155,7 +157,8 @@ public partial class CommandExecutor
                 }
                 catch { }
                 return new ExistingCropPlanTile { X = (int)p.Key.X, Y = (int)p.Key.Y, HarvestId = harvestId, HarvestName = harvestName,
-                    UnitPrice = unitPrice, Days = ExistingCropDaysRemaining(crop) };
+                    UnitPrice = unitPrice, Days = ExistingCropDaysRemaining(crop),
+                    HarvestMethod = crop.GetData()?.HarvestMethod.ToString() ?? "UNKNOWN" };
             })
             .Where(p => p.UnitPrice > 0 && p.Days >= 0)
             .ToList();
@@ -194,7 +197,7 @@ public partial class CommandExecutor
                         RequiredActions = new() { "tend_existing_crops", "sell_crops" },
                         Metadata = new(StringComparer.OrdinalIgnoreCase) { ["harvestItemId"] = sample.HarvestId,
                             ["tiles"] = count.ToString(), ["growthDays"] = days.ToString(), ["x"] = x.ToString(), ["y"] = y.ToString(),
-                            ["width"] = width.ToString(), ["height"] = height.ToString() }
+                            ["width"] = width.ToString(), ["height"] = height.ToString(), ["harvestMethod"] = sample.HarvestMethod }
                     });
                 }
             }
@@ -219,10 +222,7 @@ public partial class CommandExecutor
         bool ready = crop.currentPhase.Value >= crop.phaseDays.Count - 1 && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0);
         if (ready) return 0;
         if (crop.fullyGrown.Value) return GoalPlanPolicy.NormalizeGrowthDays(Math.Max(1, crop.dayOfCurrentPhase.Value));
-        int phase = Math.Clamp(crop.currentPhase.Value, 0, crop.phaseDays.Count - 1);
-        int remaining = Math.Max(0, crop.phaseDays[phase] - crop.dayOfCurrentPhase.Value);
-        for (int i = phase + 1; i < crop.phaseDays.Count; i++) remaining += crop.phaseDays[i];
-        return GoalPlanPolicy.NormalizeGrowthDays(Math.Max(1, remaining));
+        return GoalPlanPolicy.RemainingGrowthDays(crop.phaseDays.ToList(), crop.currentPhase.Value, crop.dayOfCurrentPhase.Value);
     }
 
     private static IEnumerable<GoalPlanCandidate> RankForResponse(IEnumerable<GoalPlanCandidate> candidates, LongTermGoal goal)
@@ -274,10 +274,11 @@ public partial class CommandExecutor
             int growth = GoalPlanPolicy.NormalizeGrowthDays(ReadMetaInt(selected, "growthDays"));
             string harvestId = selected.Metadata["harvestItemId"];
             plan.Plot = new GoalPlanPlot { Location = "Farm", X = x, Y = y, Width = width, Height = height, BoundAtUtc = now };
-            var cropInputs = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["harvestItemId"] = harvestId, ["existingCrops"] = "true" };
+            var cropInputs = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["harvestItemId"] = harvestId, ["existingCrops"] = "true",
+                ["harvestMethod"] = selected.Metadata.TryGetValue("harvestMethod", out string? existingHarvestMethod) ? existingHarvestMethod : "UNKNOWN" };
             if (growth > 0) Add(startOffset, "water_plot", "이미 심어진 살아 있는 작물의 마른 칸만 물주기", conditional: true, inputs: new(cropInputs));
             for (int day = 1; day < growth; day++) Add(startOffset + day, "water_plot", "기존 작물이 성숙할 때까지 마른 칸만 물주기", conditional: true, inputs: new(cropInputs));
-            Add(startOffset + growth, "harvest_plot", "기존 작물이 성숙한 것을 확인하고 수확", inputs: new(cropInputs));
+            Add(startOffset + growth, "harvest_plot", $"기존 작물이 성숙한 것을 확인하고 {cropInputs["harvestMethod"]} 방식으로 수확", inputs: new(cropInputs));
             Add(startOffset + growth, "get_shop_status", "피에르 영업 여부와 이동 가능 시간 확인");
             Add(startOffset + growth, "sell_crop_stack", "수확한 기존 작물을 실제 상점에서 판매하고 골드 증가 검증", inputs: new(){{"harvestItemId",harvestId}});
             Add(startOffset + growth, "verify_long_term_goal", "실제 소지금으로 목표 진행률 재검증");
@@ -294,7 +295,8 @@ public partial class CommandExecutor
             Add(startOffset, "plant_plot", $"{seedId} 씨앗을 빈 경작지에 파종", inputs: new(){{"seedItemId",seedId},{"tiles",tiles.ToString()}});
             Add(startOffset, "water_plot", "파종한 작물 영역의 마른 칸만 물주기");
             for (int day = 1; day < growth; day++) Add(startOffset + day, "water_plot", "살아 있는 미수확 작물만 물주기", conditional: true);
-            Add(startOffset + growth, "harvest_plot", "성숙 판정된 작물만 수확하고 수량 변화 검증", inputs: new(){{"harvestItemId",harvestId}});
+            string harvestMethod = selected.Metadata.TryGetValue("harvestMethod", out string? method) ? method : "UNKNOWN";
+            Add(startOffset + growth, "harvest_plot", $"성숙 판정된 작물만 {harvestMethod} 방식으로 수확하고 수량 변화 검증", inputs: new(){{"harvestItemId",harvestId},{"harvestMethod",harvestMethod}});
             Add(startOffset + growth, "sell_crop_stack", "수확물을 실제 상점에서 견적 후 판매하고 골드 증가 검증", inputs: new(){{"harvestItemId",harvestId}});
             Add(startOffset + growth, "verify_long_term_goal", "실제 소지금으로 목표 진행률 재검증");
         }

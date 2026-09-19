@@ -124,6 +124,48 @@ public partial class CommandExecutor
         } catch(Exception ex) {result=new {status="BLOCKED",reason=ex.Message,itemId=id,removed=before-CountCrop(Game1.player.Items,id,q.Quality),earned=Game1.player.Money-beforeMoney,requiresInspection=true};}
         _cropReceipts[key]=result;_monitor.Log("[CROP SALE] "+System.Text.Json.JsonSerializer.Serialize(result),LogLevel.Info);return FarmReply(c,result);
     }
+
+    private CommandResponse FreeInventorySlotAtPierre(GameCommand c)
+    {
+        if (Game1.player.Items.Any(p => p == null)) return FarmReply(c, new { status = "ALREADY_AVAILABLE", freeSlots = Game1.player.Items.Count(p => p == null) });
+        LongTermGoal goal = FindGoal(ShopText(c, "goal_id"));
+        if (!GoalActionAuthorized(goal, "sell_crops") && !GoalActionAuthorized(goal, "manage_inventory"))
+            throw new InvalidOperationException("Goal does not authorize selling or inventory management.");
+        HashSet<string> protectedIds = goal.Constraints.PreserveItemIds.Select(EconomicItemId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (Game1.currentLocation.Name != "SeedShop" || Game1.activeClickableMenu is not ShopMenu shop || !ReadPierreStatus().MenuOpen)
+            throw new InvalidOperationException("Requires Pierre's actual open shop menu.");
+        if (ShopNumber(shop, "currency") != 0 || ShopMember(shop, "heldItem") != null)
+            throw new InvalidOperationException("Gold shop and empty cursor required.");
+        var inventory = ShopMember(shop, "inventory") ?? throw new InvalidOperationException("Missing inventory UI");
+        if (ShopMember(inventory, "highlightMethod") is not Delegate accepts) throw new InvalidOperationException("Shop acceptance rule unavailable.");
+        object? multiplier = ShopMember(shop, "sellPercentage");
+        if (multiplier is not float && multiplier is not double && multiplier is not decimal)
+            throw new InvalidOperationException("UNKNOWN_SHOP_SELL_MULTIPLIER");
+        var candidates = Game1.player.Items.Select((item, slot) => new { item, slot })
+            .Where(p => p.item is StardewValley.Object && SafeStorageItem(p.item) && !protectedIds.Contains(p.item!.QualifiedItemId))
+            .Where(p => accepts.DynamicInvoke(p.item) is bool accepted && accepted)
+            .Select(p => new { p.item, p.slot, unit = ((StardewValley.Object)p.item!).sellToStorePrice(),
+                total = (long)Math.Floor(((StardewValley.Object)p.item!).sellToStorePrice() * Convert.ToDouble(multiplier)) * p.item!.Stack })
+            .Where(p => p.unit >= 0 && p.total >= 0)
+            .OrderBy(p => p.unit).ThenBy(p => p.total).ThenBy(p => p.slot).ToList();
+        if (candidates.Count == 0) throw new InvalidOperationException("NO_SAFE_PIERRE_SALE_CANDIDATE");
+        var chosen = candidates[0];
+        var slots = ShopList(inventory, "inventory");
+        if (chosen.slot >= slots.Count) throw new InvalidOperationException("Missing inventory slot.");
+        int beforeMoney = Game1.player.Money, beforeStack = chosen.item!.Stack;
+        string itemId = chosen.item.QualifiedItemId, name = chosen.item.DisplayName;
+        NoTradeModifiers(); var bounds = ShopBounds(slots[chosen.slot]!);
+        shop.receiveLeftClick(bounds.Center.X, bounds.Center.Y);
+        int earned = Game1.player.Money - beforeMoney;
+        bool cleared = chosen.slot < Game1.player.Items.Count && Game1.player.Items[chosen.slot] == null;
+        if (!cleared || earned < 0 || ShopMember(shop, "heldItem") != null)
+            throw new InvalidOperationException("INVENTORY_SLOT_SALE_NOT_VERIFIED; do not retry blindly");
+        object result = new { status = "COMPLETED", itemId, name, quantity = beforeStack, unitValue = chosen.unit,
+            earned, moneyAfter = Game1.player.Money, freedSlot = chosen.slot, freeSlots = Game1.player.Items.Count(p => p == null),
+            rule = "lowest accepted unprotected unit value, then lowest stack value" };
+        _monitor.Log("[INVENTORY SLOT SALE] " + System.Text.Json.JsonSerializer.Serialize(result), LogLevel.Info);
+        return FarmReply(c, result);
+    }
     private static Chest? StorageSource(IClickableMenu? menu)
         => menu is ItemGrabMenu ? (ShopMember(menu,"sourceItem") as Chest ?? ShopMember(menu,"context") as Chest) : null;
     private CommandResponse InspectStorage(GameCommand c)
