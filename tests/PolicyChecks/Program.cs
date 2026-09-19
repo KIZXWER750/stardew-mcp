@@ -68,4 +68,21 @@ Check(restoredNotebook.Revision==7 && restoredNotebook.Chests[0].Id=="stable" &&
 string signatureA=KnowledgeSchema.ComputeContentSignature(new[]{"map=Farm|tile=1","shop=SeedShop"});
 string signatureB=KnowledgeSchema.ComputeContentSignature(new[]{"map=Farm|tile=2","shop=SeedShop"});
 Check(signatureA!=signatureB && signatureA.Length==64,"Knowledge signature must invalidate when map inputs change");
-Console.WriteLine("30 policy, memory and knowledge regression checks passed.");
+var moneyGoal=new LongTermGoal{Id="money",Kind=GoalKinds.MoneyTarget,Status=GoalStatuses.Active,Summary="Reach 5000g",
+    Money=new MoneyGoalSpec{Metric=MoneyGoalMetrics.CurrentBalance,TargetValue=5000,StartingMoney=1200}};
+var moneyProgress=GoalSchema.EvaluateMoney(moneyGoal,3200,12,"spring-12-y1",900);
+Check(moneyProgress.CurrentValue==3200 && moneyProgress.RemainingValue==1800 && !moneyProgress.SuccessConditionMet,"Current-balance goal must report verified remaining gold");
+var achieved=GoalSchema.EvaluateMoney(moneyGoal,5100,12,"spring-12-y1",900);
+Check(achieved.SuccessConditionMet && achieved.Percent==100,"Money goal must complete only when live balance reaches target");
+moneyGoal.Money.Metric=MoneyGoalMetrics.BalanceIncrease;
+var increase=GoalSchema.EvaluateMoney(moneyGoal,4000,12,"spring-12-y1",900);
+Check(increase.CurrentValue==2800 && increase.RemainingValue==2200,"Balance-increase goal must use its captured starting balance");
+moneyGoal.Money.DeadlineDayIndex=10;
+var overdue=GoalSchema.EvaluateMoney(moneyGoal,2000,11,"spring-11-y1",900);
+Check(overdue.DeadlineMissed,"Unmet goal after its deadline must be reported overdue");
+Check(GoalSchema.CanTransition(GoalStatuses.Active,GoalStatuses.AwaitingUser),"Active goal must be able to wait for dedicated user input");
+Check(GoalSchema.CanTransition(GoalStatuses.AwaitingUser,GoalStatuses.Active),"Answered goal must be resumable");
+Check(!GoalSchema.CanTransition(GoalStatuses.Completed,GoalStatuses.Active),"Completed goal must not restart implicitly");
+var goalDocument=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{Revision=4,Goals=new(){moneyGoal}})));
+Check(goalDocument.Revision==4 && goalDocument.Goals.Single().Id=="money","Goal JSON round trip must preserve revision and stable ID");
+Console.WriteLine("38 policy, memory, knowledge and goal regression checks passed.");

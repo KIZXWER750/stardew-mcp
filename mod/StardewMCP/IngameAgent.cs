@@ -160,6 +160,22 @@ public sealed class IngameAgent
     }
     public bool Submit(string goal) => StartGoal(goal,true,false);
 
+    public bool SubmitGoalAnswer(string goalId,string questionId,string question,string answer)
+    {
+        answer=(answer??"").Trim();
+        if(answer.Length is < 1 or > 2000) {Status="답변을 1~2000자로 입력하세요.";return false;}
+        if(Busy) {Status="현재 작업을 종료한 뒤 답변하세요.";return false;}
+        try {
+            executor.AnswerGoalQuestion(goalId,questionId,answer);
+            string continuation="CONTINUE PERSISTENT GOAL\nGoal ID: "+goalId+"\nThe user answered the dedicated in-game question. "
+                +"First call inspect_long_term_goal for this exact ID, treat the saved answer as user-authorized context, and continue only within the stored goal constraints.\n"
+                +"Question: "+question+"\nUser answer: "+answer;
+            if(StartGoal(continuation,false,false)) return true;
+            Status="답변은 저장됐지만 AI 재개를 시작하지 못했습니다. F6에서 목표를 다시 요청하세요.";
+            return true;
+        } catch(Exception ex) {Status="목표 답변 저장 실패: "+ex.Message;Record(Status);return false;}
+    }
+
     private int CurrentBedtimeLevel(int time)
     {
         if(time>=Config.FinalBedtimeAlarm) return 3;
@@ -220,6 +236,7 @@ public sealed class IngameAgent
     public void Cancel()
     {
         executor.SuspendPendingTreeResume();
+        executor.PauseActiveLongTermGoalsByUser();
         if(!Busy || stopping) return;
         executor.StopUiRun();stopping=true;stopAt=DateTime.UtcNow;
         Status="입력 차단됨 · 작업 종료 대기 중";Result="사용자가 취소했습니다. 이미 바뀐 게임 상태는 유지됩니다.";
@@ -243,7 +260,11 @@ public sealed class IngameAgent
                     Status="작업 종료 · 새 목표를 입력할 수 있습니다";
                     if(Result=="실행 중") Result="작업이 종료되었습니다: "+text;
                     Result=AddSnapshotToBareCompletion(Result);
-                    if(string.IsNullOrWhiteSpace(pendingBedtimeGoal)) PostResultToChat(Result);
+                    bool waitingForGoalInput=executor.TryGetPendingGoalQuestion(out _,out GoalQuestion? pendingQuestion) && pendingQuestion!=null;
+                    if(waitingForGoalInput) {
+                        Status="장기 목표에 사용자 답변이 필요합니다.";
+                        Result="전용 질문창에서 답변하면 같은 목표의 문맥으로 계속됩니다.";
+                    } else if(string.IsNullOrWhiteSpace(pendingBedtimeGoal)) PostResultToChat(Result);
                     Record(text);continue;
                 }
                 if(type=="started") Status="AI 시작 중";

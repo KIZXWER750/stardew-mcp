@@ -1,4 +1,23 @@
-# 1.15.0 실제 함수 계약
+# 1.16.0 실제 함수 계약
+
+## 장기 목표 1차
+
+| 함수 | 역할 |
+|---|---|
+| `create_long_term_goal` | 세이브별 돈 목표 생성. `current_balance` 또는 `balance_increase`만 지원 |
+| `list_long_term_goals` | 상태별 장기 목표와 검증된 진행률 조회 |
+| `inspect_long_term_goal` | 목표·제약·질문 이력·진행률 상세 조회 |
+| `verify_long_term_goal` | 현재 게임 소지금으로 성공 조건 재검증 |
+| `pause_long_term_goal` | 목표 진행과 이후 자동화를 일시정지 |
+| `resume_long_term_goal` | 일시정지·차단 목표를 활성화. 계획 실행은 아직 시작하지 않음 |
+| `cancel_long_term_goal` | 목표를 종료 상태로 취소하며 재활성화 금지 |
+| `request_goal_input` | 꼭 필요한 질문을 목표에 저장하고 전용 인게임 응답창 요청 |
+
+- 돈 목표 완료는 AI 문구가 아니라 `Game1.player.Money`로 판정합니다.
+- 목표 생성 시점의 소지금을 저장하므로 `balance_increase`는 실제 순잔액 증가를 계산합니다.
+- 필수 질문은 목표를 `awaiting_user`로 멈추며, 전용 창의 답변을 저장한 뒤 동일 목표 후속 문맥으로 전달합니다.
+- 활성 목표 진행률은 오른쪽 아래 HUD에 표시됩니다. F6은 대기 질문을 다시 열고 F7은 활성 목표를 일시정지합니다.
+- 1차에는 경제 분석, 전략 선택, 일일 계획, 수익 행동의 자동 실행이 포함되지 않습니다.
 
 ## 장기 메모와 지식 계약
 

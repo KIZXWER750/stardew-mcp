@@ -119,11 +119,14 @@ public sealed class MemoryRestoreReport
     public string GameDate { get; set; } = "";
     public string NotebookSource { get; set; } = "";
     public string TaskSource { get; set; } = "";
+    public string GoalSource { get; set; } = "";
     public long NotebookRevision { get; set; }
     public long TaskRevision { get; set; }
+    public long GoalRevision { get; set; }
     public int ChestCount { get; set; }
     public int NoteCount { get; set; }
     public int OpenTaskCount { get; set; }
+    public int OpenGoalCount { get; set; }
     public bool RoundTripVerified { get; set; }
     public string Error { get; set; } = "";
 }
@@ -137,6 +140,7 @@ public sealed class RelevantMemoryContext
     public List<RelevantChestMemory> Chests { get; set; } = new();
     public List<MemoryNote> Notes { get; set; } = new();
     public List<PersistentTask> Tasks { get; set; } = new();
+    public List<LongTermGoal> Goals { get; set; } = new();
 }
 
 public sealed class RelevantChestMemory
@@ -155,7 +159,7 @@ public sealed class RelevantChestMemory
 public static class MemoryContextSelector
 {
     public static RelevantMemoryContext Select(NotebookDocument notebook, TaskDocument tasks, string goal, string location,
-        string gameDate, MemoryRestoreReport? restore = null, int limitPerKind = 8)
+        string gameDate, MemoryRestoreReport? restore = null, int limitPerKind = 8, GoalDocument? goals = null)
     {
         notebook = MemorySchema.Normalize(notebook);
         tasks = MemorySchema.Normalize(tasks);
@@ -193,10 +197,14 @@ public static class MemoryContextSelector
             .OrderByDescending(p => p.Source.Equals("user", StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(p => p.UpdatedAtUtc, StringComparer.Ordinal).Take(limitPerKind).ToList();
 
+        var selectedGoals = GoalSchema.Normalize(goals).Goals.Where(p => !GoalStatuses.IsTerminal(p.Status))
+            .OrderByDescending(p => p.Status == GoalStatuses.Active || p.Status == GoalStatuses.AwaitingUser)
+            .ThenByDescending(p => p.UpdatedAtUtc, StringComparer.Ordinal).Take(limitPerKind).ToList();
+
         return new RelevantMemoryContext
         {
             Goal = goal, Location = location, GameDate = gameDate, Restore = restore ?? new(),
-            Chests = selectedChests, Notes = selectedNotes, Tasks = selectedTasks
+            Chests = selectedChests, Notes = selectedNotes, Tasks = selectedTasks, Goals = selectedGoals
         };
     }
 

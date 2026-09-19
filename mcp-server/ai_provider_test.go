@@ -64,7 +64,7 @@ func TestOpenAIActualToolRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.tools) != 63 {
+	if len(s.tools) != 71 {
 		t.Fatalf("tool count = %d", len(s.tools))
 	}
 	if _, ok := s.tools["open_pierre_shop"]; !ok {
@@ -73,7 +73,7 @@ func TestOpenAIActualToolRegistry(t *testing.T) {
 	if _, ok := s.tools["enter_pierre_shop"]; !ok {
 		t.Fatal("Pierre entrance tool missing")
 	}
-	for _, name := range []string{"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life", "remove_wild_trees", "collect_loose_items", "inspect_closed_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route"} {
+	for _, name := range []string{"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life", "remove_wild_trees", "collect_loose_items", "inspect_closed_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route", "create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input"} {
 		if _, ok := s.tools[name]; !ok {
 			t.Fatal("life tool missing: " + name)
 		}

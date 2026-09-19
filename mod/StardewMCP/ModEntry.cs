@@ -30,16 +30,28 @@ public class ModEntry : Mod
             if(e.Button==_agentUi.Config.OpenKey && Game1.activeClickableMenu==null) {
                 Helper.Input.Suppress(e.Button);
                 if(_agentUi.Busy) Game1.addHUDMessage(new HUDMessage("작업 중입니다. 취소: "+_agentUi.Config.CancelKey));
+                else if(_commandExecutor!=null && _commandExecutor.TryGetPendingGoalQuestion(out string goalId,out GoalQuestion? question) && question!=null)
+                    Game1.activeClickableMenu=new GoalQuestionMenu(_agentUi,goalId,question);
                 else Game1.activeClickableMenu=new AgentMenu(_agentUi);
             }
         };
         helper.Events.Display.RenderedHud += (_,e) => {
-            if(!Context.IsWorldReady || _agentUi==null || !_agentUi.Busy) return;
-            string text=_agentUi.Status;if(text.Length>120) text=text.Substring(0,120)+"…";
-            string display=Game1.parseText("AI 작업\n"+text+"\n취소: "+_agentUi.Config.CancelKey,Game1.smallFont,580);
-            var panel=new Microsoft.Xna.Framework.Rectangle(12,88,620,132);
-            e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.82f);
-            e.SpriteBatch.DrawString(Game1.smallFont,display,new Microsoft.Xna.Framework.Vector2(panel.X+14,panel.Y+12),Microsoft.Xna.Framework.Color.White);
+            if(!Context.IsWorldReady || _agentUi==null) return;
+            if(_agentUi.Busy) {
+                string text=_agentUi.Status;if(text.Length>120) text=text.Substring(0,120)+"…";
+                string display=Game1.parseText("AI 작업\n"+text+"\n취소: "+_agentUi.Config.CancelKey,Game1.smallFont,580);
+                var panel=new Microsoft.Xna.Framework.Rectangle(12,88,620,132);
+                e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.82f);
+                e.SpriteBatch.DrawString(Game1.smallFont,display,new Microsoft.Xna.Framework.Vector2(panel.X+14,panel.Y+12),Microsoft.Xna.Framework.Color.White);
+            }
+            string goalText=_commandExecutor?.GetLongTermGoalHudText()??"";
+            if(goalText!="") {
+                int panelWidth=500,panelHeight=116;
+                var panel=new Microsoft.Xna.Framework.Rectangle(Game1.uiViewport.Width-panelWidth-18,Game1.uiViewport.Height-panelHeight-18,panelWidth,panelHeight);
+                e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.78f);
+                e.SpriteBatch.DrawString(Game1.smallFont,Game1.parseText(goalText,Game1.smallFont,panelWidth-28),
+                    new Microsoft.Xna.Framework.Vector2(panel.X+14,panel.Y+12),Microsoft.Xna.Framework.Color.White);
+            }
         };
         System.AppDomain.CurrentDomain.ProcessExit += (_,_) => _agentUi?.CloseHost();
 
@@ -93,6 +105,12 @@ public class ModEntry : Mod
         _commandExecutor?.UpdateSleepTransition();
         _commandExecutor?.ProcessOvernightCommands();
         _agentUi?.Tick();
+        if(_agentUi!=null && _commandExecutor!=null && !_agentUi.Busy && Context.IsWorldReady && Game1.activeClickableMenu==null
+            && !Game1.eventUp && Game1.player.CanMove
+            && _commandExecutor.TryGetPendingGoalQuestion(out string goalId,out GoalQuestion? question) && question!=null && !question.Presented) {
+            _commandExecutor.MarkGoalQuestionPresented(goalId,question.Id);
+            Game1.activeClickableMenu=new GoalQuestionMenu(_agentUi,goalId,question);
+        }
         // Only process when game is running
         if (!Context.IsWorldReady)
             return;
@@ -109,6 +127,7 @@ public class ModEntry : Mod
 
         // Detect manual chest moves and content changes without requiring an AI command.
         _commandExecutor?.RefreshCurrentLocationChestMemory();
+        _commandExecutor?.RefreshLongTermGoalProgress();
 
         // Broadcast game state to connected clients
         _wsServer?.BroadcastState();

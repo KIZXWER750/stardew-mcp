@@ -3,4 +3,5 @@
   <ItemGroup><Compile Include="../../mod/StardewMCP/WorkPolicy.cs" Link="WorkPolicy.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../mod/StardewMCP/MemoryModels.cs" Link="MemoryModels.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../mod/StardewMCP/KnowledgeModels.cs" Link="KnowledgeModels.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../mod/StardewMCP/GoalModels.cs" Link="GoalModels.cs" /></ItemGroup>
 </Project>

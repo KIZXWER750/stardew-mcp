@@ -13,26 +13,32 @@ public partial class CommandExecutor
 {
     private const string NotebookKey = "notebook-v1";
     private const string TaskKey = "tasks-v1";
+    private const string GoalKey = "goals-v1";
     private const string ChestMemoryIdKey = "YourName.StardewMCP/MemoryId";
     private NotebookDocument _notebook = new();
     private TaskDocument _tasks = new();
+    private GoalDocument _goals = new();
     private bool _memoryLoaded;
     private bool _notebookDirty;
     private bool _tasksDirty;
+    private bool _goalsDirty;
     private MemoryRestoreReport _memoryRestore = new();
 
     public void LoadLongTermMemory()
     {
         _notebook = LoadWithBackup(NotebookKey, MemorySchema.Normalize, () => new NotebookDocument(), out string notebookSource);
         _tasks = LoadWithBackup(TaskKey, MemorySchema.Normalize, () => new TaskDocument(), out string taskSource);
+        _goals = LoadWithBackup(GoalKey, GoalSchema.Normalize, () => new GoalDocument(), out string goalSource);
         _memoryLoaded = true;
         // Re-save normalized/recovered data so migrations and backup recovery become durable.
         _notebookDirty = true;
         _tasksDirty = true;
+        _goalsDirty = true;
         RefreshAllLoadedChests();
         FlushLongTermMemory();
-        VerifyLongTermMemoryPersistence("save_loaded", notebookSource, taskSource);
-        _monitor.Log($"[MEMORY] Loaded {_notebook.Chests.Count} chests and {_tasks.Tasks.Count} tasks.", LogLevel.Info);
+        RefreshLongTermGoalProgress();
+        VerifyLongTermMemoryPersistence("save_loaded", notebookSource, taskSource, goalSource);
+        _monitor.Log($"[MEMORY] Loaded {_notebook.Chests.Count} chests, {_tasks.Tasks.Count} tasks and {_goals.Goals.Count} goals.", LogLevel.Info);
     }
 
     public void FlushLongTermMemory()
@@ -56,6 +62,15 @@ public partial class CommandExecutor
             }
             catch { /* SaveWithBackup logged the error. Keep dirty for the next safe retry. */ }
         }
+        if (_goalsDirty)
+        {
+            try
+            {
+                SaveWithBackup(GoalKey, _goals, GoalSchema.Normalize);
+                _goalsDirty = false;
+            }
+            catch { /* SaveWithBackup logged the error. Keep dirty for the next safe retry. */ }
+        }
     }
 
     public void ClearLongTermMemorySession()
@@ -63,8 +78,10 @@ public partial class CommandExecutor
         _memoryLoaded = false;
         _notebook = new();
         _tasks = new();
+        _goals = new();
         _notebookDirty = false;
         _tasksDirty = false;
+        _goalsDirty = false;
         _memoryRestore = new();
     }
 
@@ -72,11 +89,12 @@ public partial class CommandExecutor
     {
         if (!_memoryLoaded) return;
         RefreshCurrentLocationChestMemory();
-        VerifyLongTermMemoryPersistence("day_started", "in_memory", "in_memory");
+        RefreshLongTermGoalProgress();
+        VerifyLongTermMemoryPersistence("day_started", "in_memory", "in_memory", "in_memory");
     }
 
     private RelevantMemoryContext SelectRelevantMemory(string goal, string location) =>
-        MemoryContextSelector.Select(_notebook, _tasks, goal, location, Context.IsWorldReady ? FarmDate() : "", _memoryRestore);
+        MemoryContextSelector.Select(_notebook, _tasks, goal, location, Context.IsWorldReady ? FarmDate() : "", _memoryRestore, goals: _goals);
 
     public void RefreshCurrentLocationChestMemory()
     {
@@ -217,23 +235,29 @@ public partial class CommandExecutor
         return normalize(create());
     }
 
-    private void VerifyLongTermMemoryPersistence(string kind, string notebookSource, string taskSource)
+    private void VerifyLongTermMemoryPersistence(string kind, string notebookSource, string taskSource, string goalSource)
     {
         var report = new MemoryRestoreReport
         {
             VerifiedAtUtc = DateTime.UtcNow.ToString("O"), VerificationKind = kind,
             GameDate = Context.IsWorldReady ? FarmDate() : "", NotebookSource = notebookSource, TaskSource = taskSource,
+            GoalSource = goalSource,
             NotebookRevision = _notebook.Revision, TaskRevision = _tasks.Revision,
+            GoalRevision = _goals.Revision,
             ChestCount = _notebook.Chests.Count, NoteCount = _notebook.Notes.Count,
-            OpenTaskCount = _tasks.Tasks.Count(p => !TaskStatuses.IsTerminal(p.Status))
+            OpenTaskCount = _tasks.Tasks.Count(p => !TaskStatuses.IsTerminal(p.Status)),
+            OpenGoalCount = _goals.Goals.Count(p => !GoalStatuses.IsTerminal(p.Status))
         };
         try
         {
             NotebookDocument savedNotebook = MemorySchema.Normalize(_helper.Data.ReadSaveData<NotebookDocument>(NotebookKey));
             TaskDocument savedTasks = MemorySchema.Normalize(_helper.Data.ReadSaveData<TaskDocument>(TaskKey));
+            GoalDocument savedGoals = GoalSchema.Normalize(_helper.Data.ReadSaveData<GoalDocument>(GoalKey));
             report.RoundTripVerified = savedNotebook.Revision == _notebook.Revision && savedTasks.Revision == _tasks.Revision
+                && savedGoals.Revision == _goals.Revision
                 && savedNotebook.Chests.Select(p => p.Id).OrderBy(p => p).SequenceEqual(_notebook.Chests.Select(p => p.Id).OrderBy(p => p))
-                && savedTasks.Tasks.Select(p => p.Id).OrderBy(p => p).SequenceEqual(_tasks.Tasks.Select(p => p.Id).OrderBy(p => p));
+                && savedTasks.Tasks.Select(p => p.Id).OrderBy(p => p).SequenceEqual(_tasks.Tasks.Select(p => p.Id).OrderBy(p => p))
+                && savedGoals.Goals.Select(p => p.Id).OrderBy(p => p).SequenceEqual(_goals.Goals.Select(p => p.Id).OrderBy(p => p));
             if (!report.RoundTripVerified) report.Error = "Saved revisions or stable IDs differ from in-memory state.";
         }
         catch (Exception ex)
@@ -241,7 +265,7 @@ public partial class CommandExecutor
             report.Error = ex.GetBaseException().Message;
         }
         _memoryRestore = report;
-        _monitor.Log($"[MEMORY RESTORE] kind={kind}, date={report.GameDate}, notebook={report.NotebookRevision}, tasks={report.TaskRevision}, verified={report.RoundTripVerified}, sources={notebookSource}/{taskSource}",
+        _monitor.Log($"[MEMORY RESTORE] kind={kind}, date={report.GameDate}, notebook={report.NotebookRevision}, tasks={report.TaskRevision}, goals={report.GoalRevision}, verified={report.RoundTripVerified}, sources={notebookSource}/{taskSource}/{goalSource}",
             report.RoundTripVerified ? LogLevel.Info : LogLevel.Warn);
     }
 
