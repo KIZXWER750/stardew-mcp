@@ -184,6 +184,13 @@ public static class GoalPlanStepStatuses
 
 public static class GoalPlanPolicy
 {
+    public const int MaxPlanSteps = 64;
+
+    public static int NormalizeGrowthDays(int value) => Math.Clamp(value, 0, 28);
+
+    public static bool HasSafeShape(GoalExecutionPlan? plan) => plan != null
+        && plan.Steps != null && plan.Steps.Count <= MaxPlanSteps;
+
     public static GoalPlanCandidate? Select(IEnumerable<GoalPlanCandidate> values, string preference, int remainingGold)
     {
         var candidates = values.Where(p => p.ExpectedGold > 0 && p.ExpectedProfit >= 0).ToList();

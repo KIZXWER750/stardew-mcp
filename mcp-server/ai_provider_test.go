@@ -239,6 +239,36 @@ func TestOpenAIArgumentErrorCanBeCorrectedBeforeAction(t *testing.T) {
 	}
 }
 
+func TestOpenAIReceivesLongTermEconomicExecutionRules(t *testing.T) {
+	s := testAISession(t, func() string { return "ok" })
+	for _, required := range []string{
+		"LONG-TERM GOALS:", "ECONOMIC PLANNING:", "PERSISTENT GOAL PLAN EXECUTION (PHASE 4):",
+		"For every newly created broad money goal", "start_goal_plan_execution", "GOAL WAITING:",
+	} {
+		if !strings.Contains(s.instructions, required) {
+			t.Fatalf("OpenAI instructions missing %q", required)
+		}
+	}
+}
+
+func TestOpenAIOversizedToolResultReturnsRecoverableObservation(t *testing.T) {
+	executions := 0
+	tool := copilot.DefineTool("large_read", "returns a large observation", func(p struct {
+		X int `json:"x"`
+	}, _ copilot.ToolInvocation) (string, error) {
+		executions++
+		return strings.Repeat("x", 128*1024+1), nil
+	})
+	s, err := newOpenAISession(aiConfig{Provider: "openai", Model: openAIModel, key: "test-key"}, &copilot.SessionConfig{AvailableTools: []string{"large_read"}, Tools: []copilot.Tool{tool}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := s.execute(context.Background(), responseItem{Name: "large_read", CallID: "large-1", Arguments: `{"x":1}`})
+	if err != nil || executions != 1 || !strings.Contains(output, `"status":"TOOL_RESULT_TOO_LARGE"`) || !strings.Contains(output, `"actionMayHaveExecuted":true`) {
+		t.Fatalf("oversized result was not recoverable: output=%q err=%v executions=%d", output, err, executions)
+	}
+}
+
 func TestOpenAIHTTPFailuresDoNotRetryOrLeak(t *testing.T) {
 	for _, status := range []int{301, 400, 401, 403, 404, 429, 500, 503} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {

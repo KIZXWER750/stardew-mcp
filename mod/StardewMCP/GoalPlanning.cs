@@ -33,7 +33,8 @@ public partial class CommandExecutor
             ? refresh && goal.Plan.MaxTiles > 0 ? Math.Clamp(goal.Plan.MaxTiles, 1, 64) : 16
             : Math.Clamp(requestedTiles, 1, 64);
         string fingerprint = GoalPlanFingerprint(goal, maxTiles);
-        if (!refresh && goal.Plan.Status == GoalPlanStatuses.Ready && goal.Plan.StateFingerprint == fingerprint)
+        if (!refresh && goal.Plan.Status == GoalPlanStatuses.Ready && goal.Plan.StateFingerprint == fingerprint
+            && GoalPlanPolicy.HasSafeShape(goal.Plan))
             return FarmReply(command, new { status = "UNCHANGED", goalId = goal.Id, plan = goal.Plan, stale = false });
 
         List<GoalPlanCandidate> candidates = BuildPlanCandidates(goal, maxTiles);
@@ -76,7 +77,9 @@ public partial class CommandExecutor
         _goalsDirty = true;
         FlushLongTermMemory();
         return FarmReply(command, new { status = "PLANNED", goalId = goal.Id, plan,
-            consideredCandidates = RankForResponse(deadlineEligible, goal).Take(8).ToList(),
+            consideredCandidates = RankForResponse(deadlineEligible, goal).Take(8).Select(p => new {
+                p.Id, p.Kind, p.Title, p.ExpectedGold, p.ExpectedProfit, p.UpfrontCost, p.Days, p.WorkUnits, p.Confidence, p.RequiredActions
+            }).ToList(),
             note = "The plan is persistent and ready for Phase 4 execution. Call start_goal_plan_execution; every mutating step still requires live preflight and verified completion." });
     }
 
@@ -210,11 +213,11 @@ public partial class CommandExecutor
         if (crop.phaseDays.Count == 0 || crop.dead.Value) return -1;
         bool ready = crop.currentPhase.Value >= crop.phaseDays.Count - 1 && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0);
         if (ready) return 0;
-        if (crop.fullyGrown.Value) return Math.Max(1, crop.dayOfCurrentPhase.Value);
+        if (crop.fullyGrown.Value) return GoalPlanPolicy.NormalizeGrowthDays(Math.Max(1, crop.dayOfCurrentPhase.Value));
         int phase = Math.Clamp(crop.currentPhase.Value, 0, crop.phaseDays.Count - 1);
         int remaining = Math.Max(0, crop.phaseDays[phase] - crop.dayOfCurrentPhase.Value);
         for (int i = phase + 1; i < crop.phaseDays.Count; i++) remaining += crop.phaseDays[i];
-        return Math.Max(1, remaining);
+        return GoalPlanPolicy.NormalizeGrowthDays(Math.Max(1, remaining));
     }
 
     private static IEnumerable<GoalPlanCandidate> RankForResponse(IEnumerable<GoalPlanCandidate> candidates, LongTermGoal goal)
@@ -243,6 +246,8 @@ public partial class CommandExecutor
         string previous = "";
         void Add(int offset, string action, string summary, bool conditional = false, Dictionary<string,string>? inputs = null)
         {
+            if (plan.Steps.Count >= GoalPlanPolicy.MaxPlanSteps)
+                throw new InvalidOperationException("PLAN_STEP_LIMIT_EXCEEDED");
             int sequence = plan.Steps.Count + 1;
             var step = new GoalPlanStep { Id = $"step-{sequence:00}", Sequence = sequence, DayIndex = CurrentDayIndex() + offset,
                 DayLabel = offset == 0 ? "오늘" : $"{offset}일 후", Action = action, Summary = summary,
@@ -261,7 +266,7 @@ public partial class CommandExecutor
         else if (selected.Kind == "existing_crop_cycle")
         {
             int x = ReadMetaInt(selected, "x"), y = ReadMetaInt(selected, "y"), width = ReadMetaInt(selected, "width"), height = ReadMetaInt(selected, "height");
-            int growth = ReadMetaInt(selected, "growthDays");
+            int growth = GoalPlanPolicy.NormalizeGrowthDays(ReadMetaInt(selected, "growthDays"));
             string harvestId = selected.Metadata["harvestItemId"];
             plan.Plot = new GoalPlanPlot { Location = "Farm", X = x, Y = y, Width = width, Height = height, BoundAtUtc = now };
             var cropInputs = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["harvestItemId"] = harvestId, ["existingCrops"] = "true" };
@@ -274,7 +279,7 @@ public partial class CommandExecutor
         }
         else
         {
-            int tiles = ReadMetaInt(selected, "tiles"), paidSeeds = ReadMetaInt(selected, "paidSeeds"), growth = ReadMetaInt(selected, "growthDays");
+            int tiles = ReadMetaInt(selected, "tiles"), paidSeeds = ReadMetaInt(selected, "paidSeeds"), growth = GoalPlanPolicy.NormalizeGrowthDays(ReadMetaInt(selected, "growthDays"));
             string seedId = selected.Metadata["seedItemId"], harvestId = selected.Metadata["harvestItemId"];
             (int plotWidth, int plotHeight) = GoalPlanPolicy.RectangleForTiles(tiles);
             Add(startOffset, "select_farm_plot", $"{tiles}칸 농사 후보를 관측해 한 영역을 계획에 고정", inputs: new(){{"seedItemId",seedId},{"harvestItemId",harvestId},{"tiles",tiles.ToString()},{"width",plotWidth.ToString()},{"height",plotHeight.ToString()}});
@@ -351,9 +356,10 @@ public partial class CommandExecutor
         bool changed = false;
         foreach (LongTermGoal goal in _goals.Goals.Where(p => p.Status == GoalStatuses.Active && p.Plan.Status == GoalPlanStatuses.Ready))
         {
-            if (goal.Plan.StateFingerprint == GoalPlanFingerprint(goal, Math.Clamp(goal.Plan.MaxTiles, 1, 64))) continue;
+            if (GoalPlanPolicy.HasSafeShape(goal.Plan)
+                && goal.Plan.StateFingerprint == GoalPlanFingerprint(goal, Math.Clamp(goal.Plan.MaxTiles, 1, 64))) continue;
             goal.Plan.Status = GoalPlanStatuses.Stale;
-            goal.Plan.BlockedReason = "ECONOMIC_STATE_CHANGED";
+            goal.Plan.BlockedReason = GoalPlanPolicy.HasSafeShape(goal.Plan) ? "ECONOMIC_STATE_CHANGED" : "PLAN_STEP_LIMIT_EXCEEDED";
             goal.Plan.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
             TouchGoal(goal);
             changed = true;
