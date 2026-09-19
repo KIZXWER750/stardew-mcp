@@ -19,6 +19,7 @@ Use inspect_goal_plan before relying on a saved plan. If stale=true, call refres
 requiresUserInput=true must be followed by request_goal_input so the dedicated in-game response window collects authorization.
 Pass its suggestedQuestion and suggestedOptions unchanged so the saved answer can be validated against the named actions.
 Never treat a generated plan, candidate ranking, or suggested question as permission. Only start_goal_plan_execution may begin an already authorized current plan.
+An empty sellable inventory is a missing prerequisite, not completion. Continue to build_goal_plan so another authorized candidate can be selected. If the user's explicit restrictions leave no executable candidate, use the dedicated request_goal_input flow instead of ending with an ordinary chat-only block.
 `
 
 type EconomicParams struct {

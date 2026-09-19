@@ -37,8 +37,15 @@ public partial class CommandExecutor
         {
             string reason = candidates.Count > 0 && deadlineEligible.Count == 0 ? "NO_CANDIDATE_MEETS_DEADLINE" : "NO_SUPPORTED_PROFIT_CANDIDATE";
             SaveBlockedGoalPlan(goal, fingerprint, reason, new(), maxTiles: maxTiles);
-            return FarmReply(command, new { status = "BLOCKED", goalId = goal.Id, reason, plan = goal.Plan,
-                requiresUserInput = false, note = "Observe new inventory, funds, season or supported capabilities before refreshing." });
+            string question = reason == "NO_CANDIDATE_MEETS_DEADLINE"
+                ? "현재 허용된 방법으로는 마감일까지 목표를 달성할 후보가 없습니다. 목표 조건을 어떻게 바꿀까요?"
+                : "현재 허용된 방법에 사용할 판매 수확물이나 구매 가능한 작물 후보가 없습니다. 직접 수확물을 준비할까요, 아니면 buy_seeds, farm_crops 행동 허용을 검토할까요?";
+            string[] options = reason == "NO_CANDIDATE_MEETS_DEADLINE"
+                ? new[] { "마감 조건을 다시 정하기", "목표 일시정지", "목표 취소" }
+                : new[] { "판매할 수확물을 준비한 뒤 재개", "buy_seeds, farm_crops 허용 검토", "목표 일시정지", "목표 취소" };
+            return FarmReply(command, new { status = "USER_INPUT_REQUIRED", goalId = goal.Id, reason, plan = goal.Plan,
+                requiresUserInput = true, suggestedQuestion = question, suggestedOptions = options,
+                note = "Call request_goal_input with this question and options. Do not end with a chat-only block or invent a resource." });
         }
 
         List<string> missing = selected.RequiredActions.Where(p => !GoalActionAuthorized(goal, p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

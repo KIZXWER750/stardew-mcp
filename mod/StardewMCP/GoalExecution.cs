@@ -99,6 +99,7 @@ public partial class CommandExecutor
         else if (outcome == "paused")
         {
             ResetStepForRetry(step, summary);
+            SchedulePausedShopStep(step);
             goal.Plan.Status = GoalPlanStatuses.Waiting;
             goal.Plan.BlockedReason = "STEP_PAUSED";
             SaveGoalExecution(goal);
@@ -151,10 +152,12 @@ public partial class CommandExecutor
         if (step.DependsOn.Any(id => !goal.Plan.Steps.Any(p => p.Id == id && p.Status is GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped)))
             throw new InvalidOperationException("Plan dependency is not complete.");
         int today = CurrentDayIndex();
-        if (step.DayIndex > today || Game1.timeOfDay >= goal.Plan.LatestWorkTime)
+        if (step.DayIndex > today || step.DayIndex == today && step.NotBeforeTime > 0 && Game1.timeOfDay < step.NotBeforeTime
+            || Game1.timeOfDay >= goal.Plan.LatestWorkTime)
         {
             goal.Plan.Status = GoalPlanStatuses.Waiting;
-            goal.Plan.BlockedReason = step.DayIndex > today ? "WAITING_FOR_PLANNED_DAY" : "LATEST_WORK_TIME_REACHED";
+            goal.Plan.BlockedReason = step.DayIndex > today ? "WAITING_FOR_PLANNED_DAY"
+                : step.NotBeforeTime > 0 && Game1.timeOfDay < step.NotBeforeTime ? "WAITING_FOR_START_TIME" : "LATEST_WORK_TIME_REACHED";
             SaveGoalExecution(goal);
             return FarmReply(command, new { status = "WAITING", goalId = goal.Id, nextStep = step, currentDayIndex = today,
                 reason = goal.Plan.BlockedReason, autoResume = true, note = "The persisted plan will be offered to the agent again when due." });
@@ -360,6 +363,15 @@ public partial class CommandExecutor
         step.Status = GoalPlanStepStatuses.Pending; step.ResultSummary = summary; step.LeaseId = ""; step.BlockedReason = "";
     }
 
+    private void SchedulePausedShopStep(GoalPlanStep step)
+    {
+        if (step.Action is not ("get_shop_status" or "buy_shop_item" or "sell_crop_stack")) return;
+        PierreStatus shop = ReadPierreStatus();
+        if (shop.CanAttemptTrade) return;
+        step.NotBeforeTime = shop.TradeOpens;
+        if (shop.Reason != "BEFORE_09_00") step.DayIndex = Math.Max(step.DayIndex, CurrentDayIndex() + 1);
+    }
+
     private void SaveGoalExecution(LongTermGoal goal)
     {
         goal.Plan.UpdatedAtUtc = DateTime.UtcNow.ToString("O"); goal.Plan.LastExecutionAtUtc = goal.Plan.UpdatedAtUtc;
@@ -374,7 +386,8 @@ public partial class CommandExecutor
         if (goal == null) return "";
         GoalPlanStep? step = goal.Plan.Steps.OrderBy(p => p.Sequence)
             .FirstOrDefault(p => p.Status is not (GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped));
-        if (step == null || step.DayIndex > CurrentDayIndex() || Game1.timeOfDay >= goal.Plan.LatestWorkTime) return "";
+        if (step == null || step.DayIndex > CurrentDayIndex() || step.DayIndex == CurrentDayIndex() && step.NotBeforeTime > 0 && Game1.timeOfDay < step.NotBeforeTime
+            || Game1.timeOfDay >= goal.Plan.LatestWorkTime) return "";
         if (goal.Plan.LastDispatchDayIndex == CurrentDayIndex() && goal.Plan.LastDispatchStepId == step.Id) return "";
         return "CONTINUE PERSISTENT GOAL PLAN\nGoal ID: " + goal.Id + "\nPlan revision: " + goal.Plan.Revision
             + "\nCall continue_goal_plan_execution for this exact goal. Execute only leased due steps, report each verified result, and continue until WAITING, BLOCKED, REPLAN_REQUIRED or GOAL_COMPLETED.";

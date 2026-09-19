@@ -133,6 +133,7 @@ public sealed class GoalPlanStep
     public int BeforeReadyCropTiles { get; set; }
     public int BeforeDryCropTiles { get; set; }
     public int BeforeSellableCropQuantity { get; set; }
+    public int NotBeforeTime { get; set; }
 }
 
 public sealed class GoalPlanPlot

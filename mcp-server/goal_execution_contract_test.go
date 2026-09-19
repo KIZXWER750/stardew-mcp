@@ -20,7 +20,7 @@ func TestGoalExecutionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"STATE_CHANGED_BEFORE_EXECUTION", "FindLeasedStep", "VerifyCompletedPlanStep", "BeforeMoney", "DryCropTiles", "GetPendingGoalPlanExecutionPrompt", "CYCLE_COMPLETE_REPLAN_REQUIRED"} {
+	for _, required := range []string{"STATE_CHANGED_BEFORE_EXECUTION", "FindLeasedStep", "VerifyCompletedPlanStep", "BeforeMoney", "DryCropTiles", "GetPendingGoalPlanExecutionPrompt", "CYCLE_COMPLETE_REPLAN_REQUIRED", "WAITING_FOR_START_TIME", "SchedulePausedShopStep"} {
 		if !strings.Contains(string(executor), required) {
 			t.Fatalf("missing execution verifier %q", required)
 		}

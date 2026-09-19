@@ -107,4 +107,7 @@ Check(restoredExecution.Plan.Status==GoalPlanStatuses.Waiting && restoredExecuti
 Check(restoredExecution.Plan.Steps[0].LeaseId=="lease" && restoredExecution.Plan.Steps[0].AttemptCount==1,"Persistent execution must retain an in-progress lease without replaying it");
 var migratedPlan=GoalSchema.Normalize(new GoalDocument{SchemaVersion=2,Goals=new(){new LongTermGoal{Id="old-plan",Summary="Old",Money=new MoneyGoalSpec{TargetValue=100},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Ready}}}}).Goals.Single();
 Check(migratedPlan.Plan.Status==GoalPlanStatuses.Stale && migratedPlan.Plan.BlockedReason=="MIGRATED_REPLAN_REQUIRED","Pre-execution plans must require one refresh after schema v3 migration");
-Console.WriteLine("50 policy, memory, knowledge, goal and economy regression checks passed.");
+var timedStep=new GoalPlanStep{Id="shop",NotBeforeTime=900};
+var restoredTimedStep=System.Text.Json.JsonSerializer.Deserialize<GoalPlanStep>(System.Text.Json.JsonSerializer.Serialize(timedStep));
+Check(restoredTimedStep?.NotBeforeTime==900,"A shop-opening resume time must persist across save and reload");
+Console.WriteLine("51 policy, memory, knowledge, goal and economy regression checks passed.");
