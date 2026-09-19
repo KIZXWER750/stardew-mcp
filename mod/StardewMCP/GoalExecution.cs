@@ -320,13 +320,18 @@ public partial class CommandExecutor
         if (missing.Count > 0) throw new InvalidOperationException("Plan actions are no longer authorized: " + string.Join(", ", missing));
     }
 
-    private static string RequiredGoalAction(GoalPlanStep step) => step.Action switch
+    private static string RequiredGoalAction(GoalPlanStep step)
     {
-        "buy_shop_item" => "buy_seeds",
-        "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot" or "select_farm_plot" => "farm_crops",
-        "sell_crop_stack" => "sell_crops",
-        _ => ""
-    };
+        if (step.Action is "water_plot" or "harvest_plot" && StepText(step, "existingCrops").Equals("true", StringComparison.OrdinalIgnoreCase))
+            return "tend_existing_crops";
+        return step.Action switch
+        {
+            "buy_shop_item" => "buy_seeds",
+            "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot" or "select_farm_plot" => "farm_crops",
+            "sell_crop_stack" => "sell_crops",
+            _ => ""
+        };
+    }
 
     private GoalPlanStep FindLeasedStep(LongTermGoal goal, string stepId, string leaseId, bool allowCompletedGoal = false)
     {

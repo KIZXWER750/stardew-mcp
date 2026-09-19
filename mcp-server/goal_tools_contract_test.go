@@ -12,7 +12,7 @@ func TestLongTermGoalContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(tools)
-	for _, required := range []string{"create_long_term_goal", "verify_long_term_goal", "request_goal_input", "apply_goal_action_authorization", "leased, verified steps", "dedicated response window"} {
+	for _, required := range []string{"create_long_term_goal", "verify_long_term_goal", "request_goal_input", "apply_goal_action_authorization", "leased, verified steps", "dedicated response window", "tend_existing_crops", "already-planted crops"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("missing goal contract %q", required)
 		}

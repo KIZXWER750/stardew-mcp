@@ -21,7 +21,7 @@ func TestPhaseThreePlanningContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"MISSING_ACTION_AUTHORIZATION", "StateFingerprint", "GoalActionAuthorized", "RefreshGoalPlanFreshness", "start_goal_plan_execution", "USER_INPUT_REQUIRED", "판매할 수확물을 준비한 뒤 재개"} {
+	for _, required := range []string{"MISSING_ACTION_AUTHORIZATION", "StateFingerprint", "GoalActionAuthorized", "RefreshGoalPlanFreshness", "start_goal_plan_execution", "USER_INPUT_REQUIRED", "판매할 수확물을 준비한 뒤 재개", "existing_crop_cycle", "tend_existing_crops", "ExistingCropFingerprint"} {
 		if !strings.Contains(string(planner), required) {
 			t.Fatalf("missing persistent planner contract %q", required)
 		}

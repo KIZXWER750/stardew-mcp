@@ -5,11 +5,22 @@ using System.Security.Cryptography;
 using System.Text;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.TerrainFeatures;
 
 namespace StardewMCP;
 
 public partial class CommandExecutor
 {
+    private sealed class ExistingCropPlanTile
+    {
+        public int X { get; init; }
+        public int Y { get; init; }
+        public string HarvestId { get; init; } = "";
+        public string HarvestName { get; init; } = "";
+        public int UnitPrice { get; init; }
+        public int Days { get; init; }
+    }
+
     private CommandResponse BuildGoalPlanCommand(GameCommand command, bool refresh)
     {
         RefreshLongTermGoalProgress();
@@ -39,7 +50,7 @@ public partial class CommandExecutor
             SaveBlockedGoalPlan(goal, fingerprint, reason, new(), maxTiles: maxTiles);
             string question = reason == "NO_CANDIDATE_MEETS_DEADLINE"
                 ? "현재 허용된 방법으로는 마감일까지 목표를 달성할 후보가 없습니다. 목표 조건을 어떻게 바꿀까요?"
-                : "현재 허용된 방법에 사용할 판매 수확물이나 구매 가능한 작물 후보가 없습니다. 직접 수확물을 준비할까요, 아니면 buy_seeds, farm_crops 행동 허용을 검토할까요?";
+                : "인벤토리에 판매할 수확물도, 농장에 관리할 수 있는 기존 작물도 없습니다. 직접 수확물을 준비할까요, 아니면 buy_seeds, farm_crops 행동 허용을 검토할까요?";
             string[] options = reason == "NO_CANDIDATE_MEETS_DEADLINE"
                 ? new[] { "마감 조건을 다시 정하기", "목표 일시정지", "목표 취소" }
                 : new[] { "판매할 수확물을 준비한 뒤 재개", "buy_seeds, farm_crops 허용 검토", "목표 일시정지", "목표 취소" };
@@ -94,6 +105,7 @@ public partial class CommandExecutor
             result.Add(new GoalPlanCandidate { Id = "sell_inventory_crops", Kind = "immediate_sale", Title = "보유 수확물 판매",
                 ExpectedGold = saleValue, ExpectedProfit = saleValue, Days = 0, WorkUnits = Math.Max(1, saleStacks + 3), Confidence = "high",
                 RequiredActions = new() { "sell_crops" }, Metadata = new() { ["sellableStackCount"] = saleStacks.ToString() } });
+        result.AddRange(ReadExistingCropCandidates(maxTiles));
         foreach (CropOption option in ReadCropOptions(maxTiles, goal.Constraints.ReserveMoney))
         {
             if (option.Projection.ExpectedProfit < 0) continue;
@@ -115,6 +127,94 @@ public partial class CommandExecutor
             });
         }
         return result;
+    }
+
+    private List<GoalPlanCandidate> ReadExistingCropCandidates(int maxTiles)
+    {
+        var crops = Game1.getFarm().terrainFeatures.Pairs
+            .Where(p => p.Value is HoeDirt h && h.crop != null && !h.crop.dead.Value)
+            .Select(p =>
+            {
+                var crop = ((HoeDirt)p.Value).crop!;
+                string harvestId = EconomicItemId(crop.indexOfHarvest.Value);
+                int unitPrice = 0;
+                string harvestName = harvestId;
+                try
+                {
+                    Item item = ItemRegistry.Create(harvestId);
+                    harvestName = item.DisplayName;
+                    if (item is StardewValley.Object harvest) unitPrice = harvest.sellToStorePrice();
+                }
+                catch { }
+                return new ExistingCropPlanTile { X = (int)p.Key.X, Y = (int)p.Key.Y, HarvestId = harvestId, HarvestName = harvestName,
+                    UnitPrice = unitPrice, Days = ExistingCropDaysRemaining(crop) };
+            })
+            .Where(p => p.UnitPrice > 0 && p.Days >= 0)
+            .ToList();
+        var result = new List<GoalPlanCandidate>();
+        int sequence = 0;
+        foreach (var harvestGroup in crops.GroupBy(p => p.HarvestId, StringComparer.OrdinalIgnoreCase))
+        {
+            var remaining = harvestGroup.ToDictionary(p => (p.X, p.Y));
+            while (remaining.Count > 0)
+            {
+                var start = remaining.Values.OrderBy(p => p.Y).ThenBy(p => p.X).First();
+                var queue = new Queue<(int X, int Y)>();
+                var component = new List<ExistingCropPlanTile>();
+                queue.Enqueue((start.X, start.Y));
+                while (queue.Count > 0)
+                {
+                    var key = queue.Dequeue();
+                    if (!remaining.Remove(key, out var crop)) continue;
+                    component.Add(crop);
+                    foreach (var next in new[] { (key.X - 1, key.Y), (key.X + 1, key.Y), (key.X, key.Y - 1), (key.X, key.Y + 1) })
+                        if (remaining.ContainsKey(next)) queue.Enqueue(next);
+                }
+                foreach (var chunk in ExistingCropChunks(component, maxTiles))
+                {
+                    int x = chunk.Min(p => p.X), y = chunk.Min(p => p.Y);
+                    int width = chunk.Max(p => p.X) - x + 1, height = chunk.Max(p => p.Y) - y + 1;
+                    int days = chunk.Max(p => p.Days), count = chunk.Count;
+                    int expectedGold = chunk.Sum(p => p.UnitPrice);
+                    ExistingCropPlanTile sample = chunk[0];
+                    result.Add(new GoalPlanCandidate
+                    {
+                        Id = $"tend_existing_{sequence++:00}_{sample.HarvestId.ToString().Replace("(", "").Replace(")", "")}",
+                        Kind = "existing_crop_cycle", Title = $"심어진 {sample.HarvestName} {count}칸 관리·수확",
+                        ExpectedGold = expectedGold, ExpectedProfit = expectedGold, Days = days,
+                        WorkUnits = Math.Max(1, count * Math.Max(1, days) + count + 3), Confidence = "high",
+                        RequiredActions = new() { "tend_existing_crops", "sell_crops" },
+                        Metadata = new(StringComparer.OrdinalIgnoreCase) { ["harvestItemId"] = sample.HarvestId,
+                            ["tiles"] = count.ToString(), ["growthDays"] = days.ToString(), ["x"] = x.ToString(), ["y"] = y.ToString(),
+                            ["width"] = width.ToString(), ["height"] = height.ToString() }
+                    });
+                }
+            }
+        }
+        return result;
+    }
+
+    private static IEnumerable<List<ExistingCropPlanTile>> ExistingCropChunks(List<ExistingCropPlanTile> component, int maxTiles)
+    {
+        if (component.Count <= maxTiles)
+        {
+            int width = component.Max(p => p.X) - component.Min(p => p.X) + 1;
+            int height = component.Max(p => p.Y) - component.Min(p => p.Y) + 1;
+            if (width * height <= 64) { yield return component; yield break; }
+        }
+        foreach (ExistingCropPlanTile crop in component) yield return new List<ExistingCropPlanTile> { crop };
+    }
+
+    private static int ExistingCropDaysRemaining(Crop crop)
+    {
+        if (crop.phaseDays.Count == 0 || crop.dead.Value) return -1;
+        bool ready = crop.currentPhase.Value >= crop.phaseDays.Count - 1 && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0);
+        if (ready) return 0;
+        if (crop.fullyGrown.Value) return Math.Max(1, crop.dayOfCurrentPhase.Value);
+        int phase = Math.Clamp(crop.currentPhase.Value, 0, crop.phaseDays.Count - 1);
+        int remaining = Math.Max(0, crop.phaseDays[phase] - crop.dayOfCurrentPhase.Value);
+        for (int i = phase + 1; i < crop.phaseDays.Count; i++) remaining += crop.phaseDays[i];
+        return Math.Max(1, remaining);
     }
 
     private static IEnumerable<GoalPlanCandidate> RankForResponse(IEnumerable<GoalPlanCandidate> candidates, LongTermGoal goal)
@@ -157,6 +257,20 @@ public partial class CommandExecutor
             Add(startOffset, "get_shop_status", "피에르 영업 여부와 이동 가능 시간 확인");
             Add(startOffset, "sell_crop_stack", "관측·견적된 수확물만 판매하고 실제 골드 증가 검증");
             Add(startOffset, "verify_long_term_goal", "판매 후 실제 소지금으로 목표 진행률 재검증");
+        }
+        else if (selected.Kind == "existing_crop_cycle")
+        {
+            int x = ReadMetaInt(selected, "x"), y = ReadMetaInt(selected, "y"), width = ReadMetaInt(selected, "width"), height = ReadMetaInt(selected, "height");
+            int growth = ReadMetaInt(selected, "growthDays");
+            string harvestId = selected.Metadata["harvestItemId"];
+            plan.Plot = new GoalPlanPlot { Location = "Farm", X = x, Y = y, Width = width, Height = height, BoundAtUtc = now };
+            var cropInputs = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { ["harvestItemId"] = harvestId, ["existingCrops"] = "true" };
+            if (growth > 0) Add(startOffset, "water_plot", "이미 심어진 살아 있는 작물의 마른 칸만 물주기", conditional: true, inputs: new(cropInputs));
+            for (int day = 1; day < growth; day++) Add(startOffset + day, "water_plot", "기존 작물이 성숙할 때까지 마른 칸만 물주기", conditional: true, inputs: new(cropInputs));
+            Add(startOffset + growth, "harvest_plot", "기존 작물이 성숙한 것을 확인하고 수확", inputs: new(cropInputs));
+            Add(startOffset + growth, "get_shop_status", "피에르 영업 여부와 이동 가능 시간 확인");
+            Add(startOffset + growth, "sell_crop_stack", "수확한 기존 작물을 실제 상점에서 판매하고 골드 증가 검증", inputs: new(){{"harvestItemId",harvestId}});
+            Add(startOffset + growth, "verify_long_term_goal", "실제 소지금으로 목표 진행률 재검증");
         }
         else
         {
@@ -201,6 +315,7 @@ public partial class CommandExecutor
         {
             "sell_crops" => new[] { new[] { "sell_crops", "sell", "selling", "crop_sales", "trading" } },
             "buy_seeds" => new[] { new[] { "buy_seeds", "buy", "purchase", "shopping", "trading" } },
+            "tend_existing_crops" => new[] { new[] { "tend_existing_crops", "care_existing_crops", "water_existing_crops", "harvest_existing_crops" } },
             "farm_crops" => new[] { new[] { "farm_crops", "farming", "crop_cycle", "grow_crops", "plant", "planting" } },
             _ => new[] { new[] { action } }
         };
@@ -221,9 +336,14 @@ public partial class CommandExecutor
             goal.Constraints.LatestWorkTime, goal.Constraints.StrategyPreference,
             string.Join("|", goal.Constraints.AuthorizedActions.OrderBy(p => p)),
             string.Join("|", goal.Constraints.PreserveItemIds.OrderBy(p => p)), Game1.player.Money,
-            Game1.year, Game1.currentSeason, Game1.dayOfMonth, maxTiles, inventory);
+            Game1.year, Game1.currentSeason, Game1.dayOfMonth, maxTiles, inventory, ExistingCropFingerprint());
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw))).ToLowerInvariant();
     }
+
+    private static string ExistingCropFingerprint() => string.Join("|", Game1.getFarm().terrainFeatures.Pairs
+        .Where(p => p.Value is HoeDirt h && h.crop != null)
+        .OrderBy(p => p.Key.Y).ThenBy(p => p.Key.X)
+        .Select(p => { var h = (HoeDirt)p.Value; var crop = h.crop!; return $"{(int)p.Key.X},{(int)p.Key.Y}:{crop.netSeedIndex.Value}:{crop.currentPhase.Value}:{crop.dayOfCurrentPhase.Value}:{crop.dead.Value}:{h.state.Value}"; }));
 
     public void RefreshGoalPlanFreshness()
     {

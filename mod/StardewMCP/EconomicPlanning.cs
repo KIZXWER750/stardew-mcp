@@ -122,7 +122,7 @@ public partial class CommandExecutor
     {
         string[] tools = { "Hoe", "Pickaxe", "Axe", "Watering Can", "Scythe" };
         var toolState = tools.Select(p => new { name = p, available = FarmToolSlot(p) >= 0 }).ToList();
-        return FarmReply(command, new { status = "OBSERVED", version = "1.19.1", toolState,
+        return FarmReply(command, new { status = "OBSERVED", version = "1.19.2", toolState,
             capabilities = new object[] {
                 new {id="goal.money.persistence",supported=true,mode="verified_state"},
                 new {id="economy.observe",supported=true,mode="read_only"},
@@ -135,6 +135,7 @@ public partial class CommandExecutor
                 new {id="goal.multi_day_resume",supported=true,mode="automatic_due_step_dispatch"},
                 new {id="farm.restore_tilled_soil",supported=true,mode="verified_gameplay_input"},
                 new {id="farm.crop_cycle",supported=true,mode="explicit_bounded_actions"},
+                new {id="farm.existing_crop_cycle",supported=true,mode="water_harvest_and_sell_existing_only"},
                 new {id="profit.shipping_bin",supported=false,mode="unavailable"},
                 new {id="profit.fishing",supported=false,mode="unavailable"},
                 new {id="profit.mining",supported=false,mode="unavailable"},
@@ -154,8 +155,11 @@ public partial class CommandExecutor
         RefreshLongTermGoalProgress();
         var farm = Game1.getFarm();
         var cropTiles = farm.terrainFeatures.Pairs.Where(p => p.Value is HoeDirt h && h.crop != null)
-            .Select(p => { var h = (HoeDirt)p.Value; var crop = h.crop!; return new { x=(int)p.Key.X,y=(int)p.Key.Y,
-                seedItemId=EconomicItemId(crop.netSeedIndex.Value),ready=!crop.dead.Value && crop.phaseDays.Count>0 && crop.currentPhase.Value>=crop.phaseDays.Count-1 && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value<=0),dead=crop.dead.Value,watered=h.state.Value==1 }; }).ToList();
+            .Select(p => { var h = (HoeDirt)p.Value; var crop = h.crop!; string harvestId=EconomicItemId(crop.indexOfHarvest.Value); int unitPrice=0;
+                try { if(ItemRegistry.Create(harvestId) is StardewValley.Object harvest) unitPrice=harvest.sellToStorePrice(); } catch { }
+                return new { x=(int)p.Key.X,y=(int)p.Key.Y,seedItemId=EconomicItemId(crop.netSeedIndex.Value),harvestItemId=harvestId,
+                    daysUntilHarvest=ExistingCropDaysRemaining(crop),estimatedUnitSellPrice=unitPrice,
+                    ready=!crop.dead.Value && crop.phaseDays.Count>0 && crop.currentPhase.Value>=crop.phaseDays.Count-1 && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value<=0),dead=crop.dead.Value,watered=h.state.Value==1 }; }).ToList();
         var inventory = InventoryEconomicRows();
         var goals = _goals.Goals.Where(p => p.Kind == GoalKinds.MoneyTarget && !GoalStatuses.IsTerminal(p.Status)).Select(p => new {p.Id,p.Summary,p.Status,p.Progress,p.Constraints}).ToList();
         return FarmReply(command, new { status="OBSERVED", money=Game1.player.Money, season=Game1.currentSeason,day=Game1.dayOfMonth,
@@ -192,6 +196,10 @@ public partial class CommandExecutor
         var strategies = new List<object>();
         if(cropSale>0) strategies.Add(new {id="sell_inventory_crops",kind="immediate_sale",expectedGold=cropSale,upfrontCost=0,days=0,
             supported=true,confidence="high",coversRemaining=remaining>0&&cropSale>=remaining,requiredActions=new[]{"inspect_sellable_crops","travel/open Pierre","sell_crop_stack"}});
+        strategies.AddRange(ReadExistingCropCandidates(maxTiles).Select(p=>(object)new {id=p.Id,kind=p.Kind,expectedGold=p.ExpectedGold,
+            expectedProfit=p.ExpectedProfit,upfrontCost=0,days=p.Days,tiles=ReadMetaInt(p,"tiles"),supported=true,confidence=p.Confidence,
+            coversRemaining=remaining>0&&p.ExpectedGold>=remaining,harvestItemId=p.Metadata["harvestItemId"],
+            requiredActions=new[]{"water/harvest already-planted crops","sell_crop_stack"}}));
         strategies.AddRange(cropOptions.Select(p=>(object)new {id="plant_"+p.SeedItemId.Replace("(","").Replace(")",""),kind="crop_cycle",expectedGold=p.Projection.ExpectedRevenue,
             expectedProfit=p.Projection.ExpectedProfit,upfrontCost=p.Projection.UpfrontCost,days=p.GrowthDays,tiles=p.Tiles,supported=true,confidence="medium",
             coversRemaining=remaining>0&&p.Projection.ExpectedProfit>=remaining,seedItemId=p.SeedItemId,requiredActions=new[]{"confirm plot","obtain seeds if needed","till","plant","water daily","harvest","sell"}}));

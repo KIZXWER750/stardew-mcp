@@ -16,7 +16,7 @@ Use verify_long_term_goal to test completion from live game money. Never mark a 
 Pause, resume or cancel a goal only when the user requested that state change; cancellation is terminal.
 If essential information cannot be safely inferred, create a draft/active goal with the known scope and call request_goal_input once with one concise question and at most six options. The game will show a dedicated response window. After requesting input, stop this run and do not guess.
 Do not ask through ordinary final chat when request_goal_input is available. A later continuation contains the saved answer; inspect the goal before continuing.
-For every newly created broad money goal, call build_goal_plan even when the inventory sale inspection is empty. Do not end in ordinary TASK_BLOCKED merely because the only authorized earning source is currently empty. Ask through request_goal_input whether the user will supply a sellable crop, authorize the exact named buy_seeds/farm_crops actions, pause, or cancel. Preserve an explicit prohibition unless the dedicated answer changes it.
+For every newly created broad money goal, call build_goal_plan even when the inventory sale inspection is empty. Existing live farm crops are a distinct strategy: tend_existing_crops permits watering and harvesting only already-planted crops, while farm_crops permits preparing and planting a new plot. If the user allows crop selling and forbids only seed purchases or new farming, record tend_existing_crops as within scope; never widen that to buy_seeds or farm_crops. Do not end in ordinary TASK_BLOCKED merely because the inventory is empty. Preserve an explicit prohibition unless the dedicated answer changes it.
 Only after an answered saved question explicitly authorizes its named actions, use apply_goal_action_authorization with that question ID and the exact named actions, then refresh_goal_plan.
 `
 
@@ -51,7 +51,7 @@ type GoalInputParams struct {
 type GoalAuthorizationParams struct {
 	GoalID     string   `json:"goal_id"`
 	QuestionID string   `json:"question_id" jsonschema:"Answered question ID from inspect_long_term_goal"`
-	Actions    []string `json:"actions" jsonschema:"Only exact actions named in that answered question: sell_crops, buy_seeds, farm_crops"`
+	Actions    []string `json:"actions" jsonschema:"Only exact actions named in that answered question: sell_crops, buy_seeds, tend_existing_crops, farm_crops"`
 }
 
 func goalCommand(action string, values map[string]interface{}) (string, error) {

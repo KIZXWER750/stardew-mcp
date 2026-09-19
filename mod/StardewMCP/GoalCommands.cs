@@ -84,10 +84,10 @@ public partial class CommandExecutor
         bool affirmative = (answer.Contains("허용") && !answer.Contains("허용하지") && !answer.Contains("계획만"))
             || answer is "yes" or "y" or "allow" or "allow all";
         if (!affirmative) throw new InvalidOperationException("The saved answer does not explicitly authorize actions.");
-        HashSet<string> supported = new(StringComparer.OrdinalIgnoreCase) { "sell_crops", "buy_seeds", "farm_crops" };
+        HashSet<string> supported = new(StringComparer.OrdinalIgnoreCase) { "sell_crops", "buy_seeds", "tend_existing_crops", "farm_crops" };
         List<string> actions = ReadStringList(command, "actions").Select(NormalizeGoalAction).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (actions.Count == 0 || actions.Any(p => !supported.Contains(p)))
-            throw new InvalidOperationException("Actions must contain only sell_crops, buy_seeds or farm_crops.");
+            throw new InvalidOperationException("Actions must contain only sell_crops, buy_seeds, tend_existing_crops or farm_crops.");
         if (actions.Any(p => !question.Prompt.Contains(p, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("The saved question did not name every requested action.");
         foreach (string action in actions)
