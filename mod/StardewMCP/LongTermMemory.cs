@@ -129,11 +129,13 @@ public partial class CommandExecutor
         if (!_memoryLoaded) throw new InvalidOperationException("Long-term memory is not loaded.");
         task = CloneTask(task);
         if (string.IsNullOrWhiteSpace(task.Id)) task.Id = Guid.NewGuid().ToString("N");
-        if (string.IsNullOrWhiteSpace(task.Kind)) throw new InvalidOperationException("A persistent task requires a kind.");
-        if (string.IsNullOrWhiteSpace(task.Summary)) throw new InvalidOperationException("A persistent task requires a summary.");
+        if (string.IsNullOrWhiteSpace(task.Kind) || task.Kind.Length > 100) throw new InvalidOperationException("A persistent task requires a kind of 1..100 characters.");
+        if (string.IsNullOrWhiteSpace(task.Summary) || task.Summary.Length > 1000) throw new InvalidOperationException("A persistent task requires a summary of 1..1000 characters.");
+        if (task.Priority is < -100 or > 100) throw new InvalidOperationException("Task priority must be -100..100.");
         task.Status = MemorySchema.NormalizeStatus(task.Status);
         task.Targets ??= new();
         task.ResumePolicy ??= new();
+        task.ResumePolicy.Mode = MemorySchema.NormalizeResumeMode(task.ResumePolicy.Mode);
         task.Metadata ??= new(StringComparer.OrdinalIgnoreCase);
         string now = DateTime.UtcNow.ToString("O");
         if (string.IsNullOrWhiteSpace(task.CreatedAtUtc)) task.CreatedAtUtc = now;

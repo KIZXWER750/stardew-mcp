@@ -128,6 +128,16 @@ public static class TaskStatuses
         || status.Equals(Cancelled, StringComparison.OrdinalIgnoreCase);
 }
 
+public static class TaskResumeModes
+{
+    public const string Manual = "manual";
+    public const string Automatic = "automatic";
+    public const string NextDay = "next_day";
+    public const string WhenCondition = "when_condition";
+    public static readonly HashSet<string> All = new(StringComparer.OrdinalIgnoreCase)
+        { Manual, Automatic, NextDay, WhenCondition };
+}
+
 public static class MemorySchema
 {
     public const int CurrentVersion = 1;
@@ -170,6 +180,7 @@ public static class MemorySchema
             task.Status = NormalizeStatus(task.Status);
             task.Targets ??= new();
             task.ResumePolicy ??= new();
+            task.ResumePolicy.Mode = NormalizeResumeMode(task.ResumePolicy.Mode);
             task.ResumePolicy.Conditions ??= new(StringComparer.OrdinalIgnoreCase);
             task.Metadata ??= new(StringComparer.OrdinalIgnoreCase);
         }
@@ -198,6 +209,14 @@ public static class MemorySchema
             TaskStatuses.Completed or TaskStatuses.Cancelled => true,
             _ => false
         };
+    }
+
+    public static string NormalizeResumeMode(string? mode)
+    {
+        string value = (mode ?? TaskResumeModes.Manual).Trim().ToLowerInvariant();
+        if (!TaskResumeModes.All.Contains(value))
+            throw new InvalidOperationException($"Unsupported task resume mode '{mode}'.");
+        return value;
     }
 
     private static void Migrate(MemoryDocument document)

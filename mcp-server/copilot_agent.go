@@ -985,10 +985,12 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		return farmReadCommand("shop_exit", map[string]interface{}{"exit_id": p.ExitID})
 	})
 	lifeTools := a.defineLifeTools()
+	memoryTools := a.defineMemoryTools()
 	// Create session with tools (using embedded knowledge)
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
+			"search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route",
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
@@ -999,7 +1001,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Model: "gpt-4.1",
 		SystemMessage: &copilot.SystemMessageConfig{
-			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules,
+			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
@@ -1027,6 +1029,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 	}
 	config.Tools = append(config.Tools, lifeTools...)
+	config.Tools = append(config.Tools, memoryTools...)
 	return config
 }
 

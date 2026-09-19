@@ -273,6 +273,7 @@ public partial class CommandExecutor
         string location=Game1.currentLocation.Name;
         if(location!=exit.From) {
             _activeShopExit=null;_shopExitCommand=null;
+            if(location==exit.To) MarkRouteVerified(exit.From,exit.To,exit.X,exit.Y);
             _monitor.Log($"[SHOP EXIT] from={exit.From}, expected={exit.To}, actual={location}",LogLevel.Info);
             command.OnComplete?.Invoke(FarmReply(command,new {status=location==exit.To?"COMPLETED":"BLOCKED",location,expectedLocation=exit.To,x=(int)Game1.player.Tile.X,y=(int)Game1.player.Tile.Y}));return;
         }

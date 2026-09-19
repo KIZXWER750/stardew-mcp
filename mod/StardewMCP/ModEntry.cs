@@ -66,6 +66,7 @@ public class ModEntry : Mod
     {
         _commandExecutor?.LoadLongTermMemory();
         _commandExecutor?.LoadPendingTrees();
+        _commandExecutor?.LoadGameKnowledge();
         _agentUi?.StartHost();
         _agentUi?.CheckBedtimeAlarm();
         Monitor.Log($"Save loaded: {Game1.player.Name} on {Game1.player.farmName} Farm", LogLevel.Info);
@@ -117,6 +118,7 @@ public class ModEntry : Mod
     {
         _commandExecutor?.FlushLongTermMemory();
         _commandExecutor?.ClearLongTermMemorySession();
+        _commandExecutor?.ClearGameKnowledgeSession();
         _agentUi?.Shutdown();
         _agentUi?.ResetBedtimeAlarm();
         _commandExecutor?.CancelFarmOnTitle();

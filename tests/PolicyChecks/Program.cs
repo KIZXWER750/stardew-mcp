@@ -33,7 +33,20 @@ Check(oldTasks.SchemaVersion==1 && oldTasks.Tasks[0].Status==TaskStatuses.Paused
 Check(MemorySchema.CanTransition(TaskStatuses.Paused,TaskStatuses.Active),"Paused task must be resumable");
 Check(MemorySchema.CanTransition(TaskStatuses.Active,TaskStatuses.Completed),"Active task must be completable");
 Check(!MemorySchema.CanTransition(TaskStatuses.Completed,TaskStatuses.Active),"Terminal task must not restart implicitly");
+bool resumeModeRejected=false;
+try {MemorySchema.NormalizeResumeMode("whenever");} catch(InvalidOperationException) {resumeModeRejected=true;}
+Check(resumeModeRejected,"Unknown task resume modes must be rejected");
 bool futureRejected=false;
 try {MemorySchema.Normalize(new NotebookDocument {SchemaVersion=99});} catch(InvalidOperationException) {futureRejected=true;}
 Check(futureRejected,"Unknown future schemas must be rejected for backup recovery");
-Console.WriteLine("19 policy and memory regression checks passed.");
+var knowledge=KnowledgeSchema.Normalize(new WorldKnowledgeDocument {SchemaVersion=0,Routes=new() {
+    new RouteEdgeKnowledge {From="Farm",To="BusStop",X=1,Y=1,Action="warp"},
+    new RouteEdgeKnowledge {From="BusStop",To="Town",X=2,Y=2,Action="warp"},
+    new RouteEdgeKnowledge {From="Farm",To="Forest",X=3,Y=3,Action="warp"}
+}});
+Check(knowledge.SchemaVersion==1,"Version-zero knowledge must migrate to schema v1");
+var worldRoute=KnowledgeSchema.FindRoute(knowledge,"Farm","Town");
+Check(worldRoute!=null && worldRoute.Count==2 && worldRoute[0].To=="BusStop","Knowledge route must preserve ordered graph hops");
+Check(KnowledgeSchema.FindRoute(knowledge,"Town","Farm")==null,"Knowledge route must not invent reverse edges");
+Check(KnowledgeSchema.FindRoute(knowledge,"Farm","Farm")!.Count==0,"Same-location knowledge route must be empty");
+Console.WriteLine("24 policy, memory and knowledge regression checks passed.");
