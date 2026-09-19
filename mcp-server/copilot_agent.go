@@ -425,7 +425,7 @@ func (a *StardewAgent) toolSessionConfig() *copilot.SessionConfig {
 			return resp.Message, nil
 		})
 
-	findBestTargetTool := copilot.DefineTool("find_best_target", "Find nearest target of specified type with walkable approach tile",
+	findBestTargetTool := copilot.DefineTool("find_best_target", "Find nearest target of specified type with walkable approach tile. Tree candidates are ordinary wild trees only; fruit trees are excluded. Inspect growthStage/isFullyGrown before claiming a mature tree.",
 		func(params TargetTypeParams, inv copilot.ToolInvocation) (string, error) {
 			state := gameClient.GetState()
 			if state == nil {
@@ -882,7 +882,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("harvest", p)
 		})
-	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove ordinary wild trees and collect their drops. For an inventory quantity goal always use max_trees=1, inspect the inventory, and call collect_loose_items before selecting another tree. Preserve fruit trees, crops and facilities.",
+	removeWildTreesTool := copilot.DefineTool("remove_wild_trees", "Remove ordinary wild trees and collect their drops. With preserve_young_trees=true, select only an observed type=tree with growthStage>=5/isFullyGrown=true/canBeChopped=true; map T or type=tree alone does not prove maturity. Never select fruit_tree. For an inventory quantity goal always use max_trees=1, inspect the inventory, and call collect_loose_items before selecting another tree. Preserve fruit trees, crops and facilities.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("trees", p)
 		})
@@ -1640,7 +1640,7 @@ func (a *StardewAgent) findBestTargetInfo(state *GameState, targetType string) *
 
 	if targetTypeLower == "tree" || targetTypeLower == "any" {
 		for _, tf := range state.Surroundings.NearbyTerrainFeatures {
-			if !tf.IsPassable && (tf.Type == "tree" || tf.Type == "fruit_tree") {
+			if !tf.IsPassable && tf.Type == "tree" {
 				hitsRequired := tf.HitsRequired
 				if hitsRequired == 0 {
 					hitsRequired = 10
@@ -1759,7 +1759,7 @@ func (a *StardewAgent) findBestTarget(state *GameState, targetType string) strin
 
 	if targetTypeLower == "tree" || targetTypeLower == "any" {
 		for _, tf := range state.Surroundings.NearbyTerrainFeatures {
-			if !tf.IsPassable && (tf.Type == "tree" || tf.Type == "fruit_tree") {
+			if !tf.IsPassable && tf.Type == "tree" {
 				hitsRequired := tf.HitsRequired
 				if hitsRequired == 0 {
 					hitsRequired = 10
@@ -1936,6 +1936,28 @@ func (a *StardewAgent) formatGameStateContext(state *GameState) string {
 		sb.WriteString(state.Surroundings.FurnitureInfo + "\n")
 	}
 	sb.WriteString("Furniture origin is not necessarily a walkable approach or sleeping tile. Do not assume every furniture tile is accessible.\n")
+	sb.WriteString("\n--- OBSERVED ORDINARY WILD TREES (fruit trees excluded) ---\n")
+	trees := make([]NearbyTerrain, 0)
+	for _, tf := range state.Surroundings.NearbyTerrainFeatures {
+		if tf.Type == "tree" {
+			trees = append(trees, tf)
+		}
+	}
+	sort.Slice(trees, func(i, j int) bool {
+		di := abs(trees[i].X-int(state.Player.X)) + abs(trees[i].Y-int(state.Player.Y))
+		dj := abs(trees[j].X-int(state.Player.X)) + abs(trees[j].Y-int(state.Player.Y))
+		return di < dj
+	})
+	if len(trees) == 0 {
+		sb.WriteString("No ordinary wild trees observed.\n")
+	} else {
+		for _, tf := range trees {
+			fmt.Fprintf(&sb, "(%d,%d): type=tree growthStage=%d isFullyGrown=%v canBeChopped=%v distance=%d\n",
+				tf.X, tf.Y, tf.GrowthStage, tf.IsFullyGrown, tf.CanBeChopped,
+				abs(tf.X-int(state.Player.X))+abs(tf.Y-int(state.Player.Y)))
+		}
+	}
+	sb.WriteString("For a mature-tree goal, only growthStage>=5/isFullyGrown=true/canBeChopped=true is eligible. A map T or type=tree alone is insufficient.\n")
 	sb.WriteString("\n--- OBSERVED CROP TILES (C is not automatically blocked) ---\n")
 	for _, tf := range state.Surroundings.NearbyTerrainFeatures {
 		if tf.Type == "hoe_dirt" {

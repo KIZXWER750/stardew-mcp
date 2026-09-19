@@ -34,6 +34,30 @@ func TestCropCollision(t *testing.T) {
 	}
 }
 
+func TestGameContextMakesTreeMaturityExplicit(t *testing.T) {
+	s := &GameState{}
+	s.Player.Location = "Farm"
+	s.Player.X, s.Player.Y = 40, 10
+	s.Surroundings.NearbyTerrainFeatures = []NearbyTerrain{
+		{X: 43, Y: 13, Type: "tree", GrowthStage: 3, IsFullyGrown: false, CanBeChopped: false},
+		{X: 46, Y: 18, Type: "tree", GrowthStage: 5, IsFullyGrown: true, CanBeChopped: true},
+		{X: 41, Y: 11, Type: "fruit_tree", GrowthStage: 4, IsFullyGrown: true},
+	}
+	context := (&StardewAgent{}).formatGameStateContext(s)
+	for _, want := range []string{
+		"(43,13): type=tree growthStage=3 isFullyGrown=false canBeChopped=false",
+		"(46,18): type=tree growthStage=5 isFullyGrown=true canBeChopped=true",
+		"A map T or type=tree alone is insufficient",
+	} {
+		if !strings.Contains(context, want) {
+			t.Fatalf("tree maturity context missing %q", want)
+		}
+	}
+	if strings.Contains(context, "(41,11): type=tree") {
+		t.Fatal("fruit tree was presented as an ordinary wild tree")
+	}
+}
+
 func TestPlantCompletion(t *testing.T) {
 	s := &GameState{}
 	s.Player.Location = "Farm"

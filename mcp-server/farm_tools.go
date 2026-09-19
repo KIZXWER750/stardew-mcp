@@ -17,6 +17,8 @@ Plan the user's requested stages, execute sequentially, track verified results a
 clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_plot consumes inventory seeds;
 water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes selected ordinary
 wild trees through their stumps, then detects and collects nearby loose drops. Functions handle movement and verification.
+When preserving young trees or selecting a mature tree, use only an observed type=tree candidate with growthStage>=5,
+isFullyGrown=true and canBeChopped=true. A map T or type=tree alone does not prove maturity. Never select fruit_tree.
 On Farm, if ordinary move_to cannot reach a destination because of natural debris, use move_with_clearing.
 It may clear only grass, weeds, twigs, small stones, young ordinary trees, and ordinary tree stumps selected by
 its weighted route. It never clears mature trees, fruit trees, crops, HoeDirt, buildings, chests, machines,
@@ -73,7 +75,7 @@ type PlotParams struct {
 	StopTime           int    `json:"stop_time,omitempty" jsonschema:"Game HHMM deadline; default and latest 2200"`
 	TargetFilter       string `json:"target_filter,omitempty" jsonschema:"ALL_HOED_SOIL default or CROPS_ONLY for water"`
 	MaxTrees           int    `json:"max_trees,omitempty" jsonschema:"For remove_wild_trees only: maximum selected ordinary trees/stumps, default 3, range 1..12"`
-	PreserveYoungTrees bool   `json:"preserve_young_trees,omitempty" jsonschema:"For remove_wild_trees only: preserve non-mature ordinary wild trees; default false, so all growth stages are removed"`
+	PreserveYoungTrees bool   `json:"preserve_young_trees,omitempty" jsonschema:"For remove_wild_trees only: preserve ordinary trees with growthStage below 5. For true, select only an observed type=tree with growthStage>=5/isFullyGrown=true; never infer maturity from map T or type alone. Default false"`
 	MaxObstacles       int    `json:"max_obstacles,omitempty" jsonschema:"For move_with_clearing only: maximum natural obstacles removed; default 8, range 1..16"`
 	DropItemID         string `json:"item_id,omitempty" jsonschema:"For collect_loose_items: exact observed item ID; empty means any collectible loose item"`
 	DropSearchRadius   int    `json:"search_radius,omitempty" jsonschema:"For collect_loose_items: player-centered radius, default 20, range 1..30"`

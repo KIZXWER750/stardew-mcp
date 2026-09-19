@@ -368,7 +368,9 @@ public partial class CommandExecutor
             var tile=ReadFarmTile(x,y);
             if(j.Operation=="trees") {
                 if(tile.IsWildTree && (!j.PreserveYoungTrees || tile.IsTreeStump || tile.GrowthStage>=5)) treeTargets.Add(new Point(x,y));
-                else j.ExcludedTiles.Add($"({x},{y}): not an eligible ordinary wild tree; terrain={tile.Terrain}");
+                else if(tile.IsWildTree)
+                    j.ExcludedTiles.Add($"({x},{y}): ordinary wild tree excluded; growth_stage={tile.GrowthStage}, stump={tile.IsTreeStump}, preserve_young_trees={j.PreserveYoungTrees}");
+                else j.ExcludedTiles.Add($"({x},{y}): not an ordinary wild tree; terrain={tile.Terrain}");
                 continue;
             }
             bool exclude=j.Operation=="water" && filter=="CROPS_ONLY" && !tile.HasCrop
@@ -395,6 +397,12 @@ public partial class CommandExecutor
             j.TreeInventoryBefore=SnapshotFarmInventory();
             foreach(var skipped in rankedTrees.Skip(j.MaxTrees))
                 j.ExcludedTiles.Add($"({skipped.Point.X},{skipped.Point.Y}): max_trees limit");
+            if(j.Targets.Count==0) {
+                j.Status="BLOCKED";
+                j.Reason=j.PreserveYoungTrees && j.ExcludedTiles.Any(item=>item.Contains("ordinary wild tree excluded"))
+                    ? "NO_ELIGIBLE_TREE: observed ordinary trees are younger than growth stage 5 and preserve_young_trees=true"
+                    : "NO_ELIGIBLE_TREE: requested area contains no ordinary wild tree allowed by the current policy";
+            }
         }
         if(j.Operation=="refill") {
             if(j.Width!=1 || j.Height!=1) throw new InvalidOperationException("Refill requires one observed source tile");
