@@ -85,4 +85,10 @@ Check(GoalSchema.CanTransition(GoalStatuses.AwaitingUser,GoalStatuses.Active),"A
 Check(!GoalSchema.CanTransition(GoalStatuses.Completed,GoalStatuses.Active),"Completed goal must not restart implicitly");
 var goalDocument=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{Revision=4,Goals=new(){moneyGoal}})));
 Check(goalDocument.Revision==4 && goalDocument.Goals.Single().Id=="money","Goal JSON round trip must preserve revision and stable ID");
-Console.WriteLine("38 policy, memory, knowledge and goal regression checks passed.");
+var parsnipProfit=CropProfitMath.Calculate(new CropProfitInput{GrowthDays=4,RegrowDays=-1,DaysRemaining=10,Tiles=10,SeedPrice=20,UnitSellPrice=35});
+Check(parsnipProfit.Harvests==1 && parsnipProfit.UpfrontCost==200 && parsnipProfit.ExpectedRevenue==350 && parsnipProfit.ExpectedProfit==150,"Single-harvest crop economics must include seed cost");
+var regrowProfit=CropProfitMath.Calculate(new CropProfitInput{GrowthDays=5,RegrowDays=3,DaysRemaining=12,Tiles=2,SeedPrice=50,UnitSellPrice=100,ExpectedYieldPerHarvest=1});
+Check(regrowProfit.Harvests==3 && regrowProfit.ExpectedProfit==500,"Regrowing crops must count only harvests inside the season window");
+var tooLate=CropProfitMath.Calculate(new CropProfitInput{GrowthDays=13,RegrowDays=-1,DaysRemaining=12,Tiles=4,SeedPrice=10,UnitSellPrice=100});
+Check(tooLate.Harvests==0 && tooLate.ExpectedProfit==-40,"Too-late planting must not invent a harvest");
+Console.WriteLine("41 policy, memory, knowledge, goal and economy regression checks passed.");

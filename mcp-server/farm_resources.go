@@ -7,7 +7,7 @@ import (
 
 type AnalyzeParams struct {
 	PlotParams
-	Operation string `json:"operation" jsonschema:"clear, till, prepare, plant, water, or harvest"`
+	Operation string `json:"operation" jsonschema:"clear, till, restore_soil, prepare, plant, water, or harvest"`
 }
 type WaterSourceParams struct {
 	SearchRadius int `json:"search_radius,omitempty" jsonschema:"Search radius around player: 1..64, default 32"`
@@ -26,7 +26,7 @@ func (p AnalyzeParams) valuesForAnalysis() (map[string]interface{}, error) {
 		return nil, err
 	}
 	switch p.Operation {
-	case "clear", "till", "prepare", "plant", "water", "harvest":
+	case "clear", "till", "restore_soil", "prepare", "plant", "water", "harvest":
 	default:
 		return nil, fmt.Errorf("unsupported operation")
 	}

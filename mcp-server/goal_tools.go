@@ -7,11 +7,11 @@ import (
 )
 
 const goalToolRules = `
-LONG-TERM GOALS (PHASE 1):
-Use create_long_term_goal only for a broad outcome the user intends to persist across days or game restarts. Phase 1 supports money_target only.
+LONG-TERM GOALS:
+Use create_long_term_goal only for a broad outcome the user intends to persist across days or game restarts. The current goal schema supports money_target only.
 Interpret "reach/save N gold" as metric=current_balance. Use metric=balance_increase only when the user explicitly asks to gain N additional net gold from the starting balance.
 Creating a goal does not authorize unlisted actions. Record only actions clearly within the user's request in authorized_actions; an empty list grants no gameplay action.
-Phase 1 persists and verifies goals but does not autonomously plan or execute profit strategies. Never claim that creating a goal started farming or earning money.
+Goals persist and verify progress. Phase 2 can analyze profit strategies through the economic tools but does not autonomously select or execute them. Never claim that creating a goal started farming or earning money.
 Use verify_long_term_goal to test completion from live game money. Never mark a money goal complete through text or a status tool.
 Pause, resume or cancel a goal only when the user requested that state change; cancellation is terminal.
 If essential information cannot be safely inferred, create a draft/active goal with the known scope and call request_goal_input once with one concise question and at most six options. The game will show a dedicated response window. After requesting input, stop this run and do not guess.
@@ -20,7 +20,7 @@ Do not ask through ordinary final chat when request_goal_input is available. A l
 
 type GoalCreateParams struct {
 	Summary            string   `json:"summary" jsonschema:"Concise user-visible goal summary"`
-	Kind               string   `json:"kind,omitempty" jsonschema:"Only money_target is supported in Phase 1"`
+	Kind               string   `json:"kind,omitempty" jsonschema:"Only money_target is currently supported"`
 	Metric             string   `json:"metric,omitempty" jsonschema:"current_balance or balance_increase"`
 	TargetValue        int      `json:"target_value" jsonschema:"Target gold value greater than zero"`
 	ReserveMoney       int      `json:"reserve_money,omitempty" jsonschema:"Gold that later plans must preserve"`
@@ -52,7 +52,7 @@ func goalCommand(action string, values map[string]interface{}) (string, error) {
 
 func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 	return []copilot.Tool{
-		copilot.DefineTool("create_long_term_goal", "Persist one broad outcome across game days and restarts. Phase 1 supports money targets and verifies progress, but does not create or execute a profit plan.", func(p GoalCreateParams, _ copilot.ToolInvocation) (string, error) {
+		copilot.DefineTool("create_long_term_goal", "Persist one broad outcome across game days and restarts. Supports money targets and verifies progress; economic tools can separately produce read-only strategy candidates.", func(p GoalCreateParams, _ copilot.ToolInvocation) (string, error) {
 			if strings.TrimSpace(p.Summary) == "" || p.TargetValue <= 0 {
 				return "TASK_BLOCKED: summary and positive target_value required", nil
 			}
@@ -79,7 +79,7 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 		copilot.DefineTool("pause_long_term_goal", "Pause an active persistent goal without deleting its progress.", func(p GoalIDParams, _ copilot.ToolInvocation) (string, error) {
 			return goalCommand("goal_status", map[string]interface{}{"goal_id": p.GoalID, "status": "paused"})
 		}),
-		copilot.DefineTool("resume_long_term_goal", "Resume a paused or blocked persistent goal. This changes status only; Phase 1 does not auto-plan profit actions.", func(p GoalIDParams, _ copilot.ToolInvocation) (string, error) {
+		copilot.DefineTool("resume_long_term_goal", "Resume a paused or blocked persistent goal. This changes status only and does not select or execute a profit strategy.", func(p GoalIDParams, _ copilot.ToolInvocation) (string, error) {
 			return goalCommand("goal_status", map[string]interface{}{"goal_id": p.GoalID, "status": "active"})
 		}),
 		copilot.DefineTool("cancel_long_term_goal", "Permanently cancel one persistent goal. Cancelled goals cannot be resumed.", func(p GoalIDParams, _ copilot.ToolInvocation) (string, error) {

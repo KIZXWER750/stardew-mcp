@@ -36,3 +36,15 @@ func TestTreeWorkUsesNormalInputForTreeHits(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreSoilUsesVerifiedPickaxeInput(t *testing.T) {
+	work, err := os.ReadFile("../mod/StardewMCP/FarmWork.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{`"restore_soil" => !t.Hoed`, `j.Operation=="restore_soil"?"Pickaxe"`, `else if(j.Operation=="restore_soil")`, `? !t.Hoed`} {
+		if !strings.Contains(string(work), required) {
+			t.Fatalf("restore-soil contract missing %q", required)
+		}
+	}
+}

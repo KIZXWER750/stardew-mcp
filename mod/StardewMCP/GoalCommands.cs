@@ -12,7 +12,7 @@ public partial class CommandExecutor
     {
         string kind = ShopText(command, "kind").Trim().ToLowerInvariant();
         if (kind == "") kind = GoalKinds.MoneyTarget;
-        if (kind != GoalKinds.MoneyTarget) throw new InvalidOperationException("Phase 1 supports only money_target goals.");
+        if (kind != GoalKinds.MoneyTarget) throw new InvalidOperationException("The current goal schema supports only money_target goals.");
         string summary = ShopText(command, "summary").Trim();
         string metric = ShopText(command, "metric").Trim();
         if (metric == "") metric = MoneyGoalMetrics.CurrentBalance;
@@ -26,7 +26,7 @@ public partial class CommandExecutor
         return FarmReply(command, new
         {
             status = "SAVED", goal, currentMoney = Game1.player.Money, dayIndex = (int)Game1.stats.DaysPlayed,
-            note = "The goal is persistent, but Phase 1 does not autonomously plan or execute earning actions. Completion is verified from live money."
+            note = "The goal is persistent. Phase 2 can compare profit candidates but does not autonomously select or execute them. Completion is verified from live money."
         });
     }
 

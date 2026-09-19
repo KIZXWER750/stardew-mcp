@@ -115,7 +115,7 @@ public partial class CommandExecutor
         if(j.SeedItemId.StartsWith("(O)")) j.SeedItemId=j.SeedItemId.Substring(3);
         string filter=S("target_filter","ALL_HOED_SOIL"),policy=S("existing_crop_policy","PRESERVE_AND_REPORT");
         if(policy=="") policy="PRESERVE_AND_REPORT";
-        if(!new[]{"clear","till","prepare","plant","water","harvest"}.Contains(j.Operation)) throw new InvalidOperationException("Unsupported analysis operation");
+        if(!new[]{"clear","till","restore_soil","prepare","plant","water","harvest"}.Contains(j.Operation)) throw new InvalidOperationException("Unsupported analysis operation");
         if(j.Operation=="plant" && j.SeedItemId=="") throw new InvalidOperationException("seed_item_id required");
         if(!new[]{"ALL_HOED_SOIL","CROPS_ONLY"}.Contains(filter) || !new[]{"PRESERVE_AND_REPORT","REQUIRE_SAME_CROP"}.Contains(policy)) throw new InvalidOperationException("Invalid analysis filter/policy");
         var tiles=new List<object>();var needed=new HashSet<string>();
@@ -126,7 +126,8 @@ public partial class CommandExecutor
             string code="READY";
             bool skip=j.Operation=="water" && filter=="CROPS_ONLY" && !t.HasCrop
                 || j.Operation=="plant" && policy=="PRESERVE_AND_REPORT" && t.HasCrop
-                || j.Operation=="harvest" && !t.ReadyForHarvest;
+                || j.Operation=="harvest" && !t.ReadyForHarvest
+                || j.Operation=="restore_soil" && (t.HasCrop || t.Obstacle!="");
             if(skip) {code="EXCLUDED";excluded++;}
             else if(Satisfied(j,t)) {code="ALREADY_SATISFIED";satisfied++;}
             else {
@@ -139,6 +140,7 @@ public partial class CommandExecutor
                 if(code=="READY") {
                     feasible++;
                     if(j.Operation=="prepare" || j.Operation=="till") needed.Add("Hoe");
+                    if(j.Operation=="restore_soil") needed.Add("Pickaxe");
                     if(t.Obstacle!="") {
                         var stand=t.Approaches.First(a=>a.Reachable);
                         string tool=ChooseClearingTool(j,t,new Point(stand.X,stand.Y));

@@ -15,6 +15,7 @@ Choose coordinates from observations, never ask the user to provide tile numbers
 Use find_plot_candidates for NEW plots; for existing crops inspect their observed area.
 Plan the user's requested stages, execute sequentially, track verified results and stop after one completed goal.
 clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_plot consumes inventory seeds;
+restore_tilled_soil uses a pickaxe on empty HoeDirt only and verifies it became normal ground; crops and objects are excluded;
 water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes selected ordinary
 wild trees through their stumps, then detects and collects nearby loose drops. Functions handle movement and verification.
 Every observed ordinary tree includes treeState, isStump, hitsRequired for its current state,

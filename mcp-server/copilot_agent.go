@@ -874,6 +874,10 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("till", p)
 		})
+	restoreTilledSoilTool := copilot.DefineTool("restore_tilled_soil", "Convert empty existing HoeDirt in an explicit Farm rectangle back to normal ground with normal Pickaxe input. Crops, objects and facilities are excluded. Moves, swings and verifies each tile; never clears obstacles.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("restore_soil", p)
+		})
 	plantPlotTool := copilot.DefineTool("plant_plot", "Plant inventory seeds in empty HoeDirt, using seed_item_id. Preserve existing crops; report exclusions. No buying or tilling. Returns terminal structured task result; executes all movement internally.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("plant", p)
@@ -987,27 +991,30 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	lifeTools := a.defineLifeTools()
 	memoryTools := a.defineMemoryTools()
 	goalTools := a.defineGoalTools()
+	economicTools := a.defineEconomicTools()
 	// Create session with tools (using embedded knowledge)
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
 			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input",
+			"inspect_capability_registry", "assess_economic_state", "analyze_crop_profit_options", "find_profit_opportunities",
 			"search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route",
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
-			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing", "collect_loose_items",
+			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "restore_tilled_soil", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing", "collect_loose_items",
 			"move_to", "get_surroundings", "interact", "use_tool",
 			"use_tool_repeat", "face_direction", "select_item", "switch_tool",
 			"eat_item", "enter_door", "exit_house", "find_best_target", "clear_target",
 		},
 		Model: "gpt-4.1",
 		SystemMessage: &copilot.SystemMessageConfig{
-			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + goalToolRules,
+			Content: gameKnowledge + farmToolRules + shopToolRules + cropTradeRules + lifeToolRules + memoryToolRules + goalToolRules + economicToolRules,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
-			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
+			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, restoreTilledSoilTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
+			economicTools[0], economicTools[1], economicTools[2], economicTools[3],
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,
 			useToolRepeatTool, faceDirectionTool, selectItemTool, switchToolTool,
