@@ -20,7 +20,7 @@ func TestGoalExecutionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"STATE_CHANGED_BEFORE_EXECUTION", "FindLeasedStep", "VerifyCompletedPlanStep", "BeforeMoney", "DryCropTiles", "GetPendingGoalPlanExecutionPrompt", "CYCLE_COMPLETE_REPLAN_REQUIRED", "WAITING_FOR_START_TIME", "SchedulePausedShopStep", "existingCrops", "tend_existing_crops"} {
+	for _, required := range []string{"STATE_CHANGED_BEFORE_EXECUTION", "FindLeasedStep", "VerifyCompletedPlanStep", "BeforeMoney", "DryCropTiles", "GetPendingGoalPlanExecutionPrompt", "GetPendingGoalPlanDayAdvancePrompt", "MarkGoalPlanDayAdvanceDispatched", "CYCLE_COMPLETE_REPLAN_REQUIRED", "WAITING_FOR_START_TIME", "SchedulePausedShopStep", "existingCrops", "tend_existing_crops"} {
 		if !strings.Contains(string(executor), required) {
 			t.Fatalf("missing execution verifier %q", required)
 		}
@@ -29,7 +29,7 @@ func TestGoalExecutionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ui), "MarkGoalPlanExecutionDispatched") {
+	if !strings.Contains(string(ui), "MarkGoalPlanExecutionDispatched") || !strings.Contains(string(ui), "MarkGoalPlanDayAdvanceDispatched") {
 		t.Fatal("automatic persisted plan resume is not wired")
 	}
 }

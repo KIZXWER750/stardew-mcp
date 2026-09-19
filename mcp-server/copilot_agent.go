@@ -997,7 +997,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
-			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization",
+			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization", "set_goal_daily_life_policy",
 			"inspect_capability_registry", "assess_economic_state", "analyze_crop_profit_options", "find_profit_opportunities",
 			"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan",
 			"start_goal_plan_execution", "continue_goal_plan_execution", "bind_goal_plan_plot", "report_goal_plan_step",

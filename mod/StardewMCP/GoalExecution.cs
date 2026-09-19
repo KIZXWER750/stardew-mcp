@@ -398,6 +398,35 @@ public partial class CommandExecutor
             + "\nCall continue_goal_plan_execution for this exact goal. Execute only leased due steps, report each verified result, and continue until WAITING, BLOCKED, REPLAN_REQUIRED or GOAL_COMPLETED.";
     }
 
+    public string GetPendingGoalPlanDayAdvancePrompt()
+    {
+        if (!_memoryLoaded || !Context.IsWorldReady) return "";
+        LongTermGoal? goal = _goals.Goals.FirstOrDefault(p => p.Status == GoalStatuses.Active
+            && p.Plan.Status == GoalPlanStatuses.Waiting);
+        GoalPlanStep? step = goal?.Plan.Steps.OrderBy(p => p.Sequence)
+            .FirstOrDefault(p => p.Status is not (GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped));
+        int today = CurrentDayIndex();
+        if (goal == null || !GoalPlanPolicy.CanAutoAdvanceDay(goal, step, today)) return "";
+        return "ADVANCE PERSISTENT GOAL TO ITS NEXT PLANNED DAY\nGoal ID: " + goal.Id
+            + "\nPlan revision: " + goal.Plan.Revision + "\nNext step day index: " + step!.DayIndex
+            + "\nThe saved goal policy explicitly authorizes returning home and sleeping after today's planned work. "
+            + "Do not execute or replan farming or trading steps in this run. Call find_home_route, then return_home exactly once, then sleep_until_morning exactly once. "
+            + "The sleep tool must verify the changed date, stable controllable morning, and advancing clock. "
+            + "After that verification, finish with GOAL WAITING: next morning verified; persisted plan is due for automatic resume.";
+    }
+
+    public bool HasPendingGoalPlanAutomation()
+        => GetPendingGoalPlanDayAdvancePrompt() != "" || GetPendingGoalPlanExecutionPrompt() != "";
+
+    public void MarkGoalPlanDayAdvanceDispatched()
+    {
+        LongTermGoal? goal = _goals.Goals.FirstOrDefault(p => p.Status == GoalStatuses.Active
+            && p.Plan.Status == GoalPlanStatuses.Waiting);
+        if (goal == null) return;
+        goal.Plan.LastDayAdvanceDispatchDayIndex = CurrentDayIndex();
+        SaveGoalExecution(goal);
+    }
+
     public void MarkGoalPlanExecutionDispatched()
     {
         LongTermGoal? goal = _goals.Goals.FirstOrDefault(p => p.Status == GoalStatuses.Active

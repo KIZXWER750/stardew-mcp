@@ -19,7 +19,8 @@ public partial class CommandExecutor
 
     public LongTermGoal CreateMoneyGoal(string summary, string metric, int targetValue, int reserveMoney,
         int latestWorkTime, string strategyPreference, IEnumerable<string>? authorizedActions,
-        IEnumerable<string>? preserveItemIds, int? deadlineDayIndex, string deadlineLabel)
+        IEnumerable<string>? preserveItemIds, int? deadlineDayIndex, string deadlineLabel,
+        bool allowDailyReturnHome = false, bool allowDailySleep = false)
     {
         if (!_memoryLoaded) throw new InvalidOperationException("Long-term memory is not loaded.");
         if (string.IsNullOrWhiteSpace(summary) || summary.Trim().Length > 1000)
@@ -43,7 +44,8 @@ public partial class CommandExecutor
             {
                 ReserveMoney = reserveMoney, LatestWorkTime = latestWorkTime,
                 StrategyPreference = string.IsNullOrWhiteSpace(strategyPreference) ? "balanced" : strategyPreference.Trim(),
-                AuthorizedActions = NormalizeStringList(authorizedActions), PreserveItemIds = NormalizeStringList(preserveItemIds)
+                AuthorizedActions = NormalizeStringList(authorizedActions), PreserveItemIds = NormalizeStringList(preserveItemIds),
+                AllowDailyReturnHome = allowDailyReturnHome || allowDailySleep, AllowDailySleep = allowDailySleep
             },
             CreatedGameDate = FarmDate(), CreatedGameTime = Game1.timeOfDay,
             UpdatedGameDate = FarmDate(), UpdatedGameTime = Game1.timeOfDay,
@@ -54,6 +56,17 @@ public partial class CommandExecutor
         _goals.Goals.Add(goal);
         _goalsDirty = true;
         FlushLongTermMemory();
+        return Clone(goal);
+    }
+
+    public LongTermGoal SetGoalDailyLifePolicy(string id, bool allowReturnHome, bool allowSleep)
+    {
+        LongTermGoal goal = FindGoal(id);
+        if (GoalStatuses.IsTerminal(goal.Status)) throw new InvalidOperationException("A terminal goal cannot change its daily-life policy.");
+        goal.Constraints.AllowDailyReturnHome = allowReturnHome || allowSleep;
+        goal.Constraints.AllowDailySleep = allowSleep;
+        if (allowSleep) goal.Plan.LastDayAdvanceDispatchDayIndex = -1;
+        TouchGoal(goal); _goalsDirty = true; FlushLongTermMemory();
         return Clone(goal);
     }
 

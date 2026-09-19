@@ -46,6 +46,8 @@ public sealed class GoalConstraints
     public string StrategyPreference { get; set; } = "balanced";
     public List<string> AuthorizedActions { get; set; } = new();
     public List<string> PreserveItemIds { get; set; } = new();
+    public bool AllowDailyReturnHome { get; set; }
+    public bool AllowDailySleep { get; set; }
 }
 
 public sealed class GoalProgress
@@ -100,6 +102,7 @@ public sealed class GoalExecutionPlan
     public string LastExecutionAtUtc { get; set; } = "";
     public int LastDispatchDayIndex { get; set; } = -1;
     public string LastDispatchStepId { get; set; } = "";
+    public int LastDayAdvanceDispatchDayIndex { get; set; } = -1;
     public GoalPlanPlot? Plot { get; set; }
     public List<string> MissingAuthorizations { get; set; } = new();
     public List<string> Assumptions { get; set; } = new();
@@ -190,6 +193,12 @@ public static class GoalPlanPolicy
 
     public static bool HasSafeShape(GoalExecutionPlan? plan) => plan != null
         && plan.Steps != null && plan.Steps.Count <= MaxPlanSteps;
+
+    public static bool CanAutoAdvanceDay(LongTermGoal goal, GoalPlanStep? nextStep, int today)
+        => goal.Status == GoalStatuses.Active && goal.Constraints.AllowDailyReturnHome
+        && goal.Constraints.AllowDailySleep && goal.Plan.Status == GoalPlanStatuses.Waiting
+        && nextStep != null && nextStep.DayIndex > today
+        && goal.Plan.LastDayAdvanceDispatchDayIndex != today;
 
     public static GoalPlanCandidate? Select(IEnumerable<GoalPlanCandidate> values, string preference, int remainingGold)
     {

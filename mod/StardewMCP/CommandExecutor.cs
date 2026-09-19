@@ -499,6 +499,7 @@ public partial class CommandExecutor
                 "goal_verify" => VerifyLongTermGoalCommand(command),
                 "goal_question" => RequestGoalQuestionCommand(command),
                 "goal_authorize_actions" => ApplyGoalActionAuthorizationCommand(command),
+                "goal_daily_life_policy" => SetGoalDailyLifePolicyCommand(command),
                 "capability_registry" => CapabilityRegistry(command),
                 "economic_state" => EconomicState(command),
                 "crop_profit_options" => CropProfitOptions(command),

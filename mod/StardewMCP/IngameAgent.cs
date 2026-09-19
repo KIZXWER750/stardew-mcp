@@ -264,6 +264,8 @@ public sealed class IngameAgent
                     if(waitingForGoalInput) {
                         Status="장기 목표에 사용자 답변이 필요합니다.";
                         Result="전용 질문창에서 답변하면 같은 목표의 문맥으로 계속됩니다.";
+                    } else if(executor.HasPendingGoalPlanAutomation()) {
+                        Status="장기 목표의 다음 체크포인트를 자동 실행할 예정입니다.";
                     } else if(string.IsNullOrWhiteSpace(pendingBedtimeGoal)) PostResultToChat(Result);
                     Record(text);continue;
                 }
@@ -287,11 +289,15 @@ public sealed class IngameAgent
         if(!Busy && Ready && Context.IsWorldReady && Game1.activeClickableMenu==null
             && !Game1.eventUp && !Game1.player.UsingTool && Game1.player.CanMove
             && string.IsNullOrWhiteSpace(pendingBedtimeGoal)) {
-            string planResume=executor.GetPendingGoalPlanExecutionPrompt();
-            if(planResume!="" && StartGoal(planResume,false,true)) executor.MarkGoalPlanExecutionDispatched();
+            string dayAdvance=executor.GetPendingGoalPlanDayAdvancePrompt();
+            if(dayAdvance!="" && StartGoal(dayAdvance,false,true)) executor.MarkGoalPlanDayAdvanceDispatched();
             else {
-                string resume=executor.GetPendingTreeGoal();
-                if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+                string planResume=executor.GetPendingGoalPlanExecutionPrompt();
+                if(planResume!="" && StartGoal(planResume,false,true)) executor.MarkGoalPlanExecutionDispatched();
+                else {
+                    string resume=executor.GetPendingTreeGoal();
+                    if(resume!="" && StartGoal(resume,false,true)) executor.MarkPendingTreeDispatched();
+                }
             }
         }
     }

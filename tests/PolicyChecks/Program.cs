@@ -102,6 +102,11 @@ Check(GoalPlanPolicy.RectangleForTiles(16)==(4,4),"Sixteen planned tiles must bi
 Check(GoalPlanPolicy.RectangleForTiles(15).Width*GoalPlanPolicy.RectangleForTiles(15).Height==15,"Planned plot rectangle must preserve the requested tile count when factorable");
 Check(GoalPlanPolicy.NormalizeGrowthDays(99999)==28,"Installed crop phase sentinels must not create unbounded daily plan steps");
 Check(!GoalPlanPolicy.HasSafeShape(new GoalExecutionPlan{Steps=Enumerable.Range(0,65).Select(_=>new GoalPlanStep()).ToList()}),"Oversized persisted plans must be invalidated before returning them to the AI");
+var sleepGoal=new LongTermGoal{Status=GoalStatuses.Active,Constraints=new GoalConstraints{AllowDailyReturnHome=true,AllowDailySleep=true},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Waiting,LastDayAdvanceDispatchDayIndex=-1}};
+var tomorrowStep=new GoalPlanStep{DayIndex=13};
+Check(GoalPlanPolicy.CanAutoAdvanceDay(sleepGoal,tomorrowStep,12),"Explicit saved return-home and sleep permission must schedule the next planned day");
+sleepGoal.Plan.LastDayAdvanceDispatchDayIndex=12;
+Check(!GoalPlanPolicy.CanAutoAdvanceDay(sleepGoal,tomorrowStep,12),"A failed day-advance run must not loop again on the same day");
 var executingGoal=new LongTermGoal{Id="executing",Summary="Execute",Money=new MoneyGoalSpec{TargetValue=5000},Plan=new GoalExecutionPlan{Status=GoalPlanStatuses.Waiting,Revision=3,
     Plot=new GoalPlanPlot{X=10,Y=12,Width=4,Height=4},Steps=new(){new GoalPlanStep{Id="step-01",Status=GoalPlanStepStatuses.InProgress,LeaseId="lease",AttemptCount=1}}}};
 var restoredExecution=GoalSchema.Normalize(System.Text.Json.JsonSerializer.Deserialize<GoalDocument>(System.Text.Json.JsonSerializer.Serialize(new GoalDocument{SchemaVersion=3,Goals=new(){executingGoal}}))!).Goals.Single();
@@ -112,4 +117,4 @@ Check(migratedPlan.Plan.Status==GoalPlanStatuses.Stale && migratedPlan.Plan.Bloc
 var timedStep=new GoalPlanStep{Id="shop",NotBeforeTime=900};
 var restoredTimedStep=System.Text.Json.JsonSerializer.Deserialize<GoalPlanStep>(System.Text.Json.JsonSerializer.Serialize(timedStep));
 Check(restoredTimedStep?.NotBeforeTime==900,"A shop-opening resume time must persist across save and reload");
-Console.WriteLine("53 policy, memory, knowledge, goal and economy regression checks passed.");
+Console.WriteLine("55 policy, memory, knowledge, goal and economy regression checks passed.");

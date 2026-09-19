@@ -22,7 +22,8 @@ public partial class CommandExecutor
         int? deadline = command.Params.ContainsKey("deadline_day_index") ? ShopInt(command, "deadline_day_index") : null;
         LongTermGoal goal = CreateMoneyGoal(summary, metric, target, reserve, latest,
             ShopText(command, "strategy_preference"), ReadStringList(command, "authorized_actions"),
-            ReadStringList(command, "preserve_item_ids"), deadline, ShopText(command, "deadline_label"));
+            ReadStringList(command, "preserve_item_ids"), deadline, ShopText(command, "deadline_label"),
+            ReadCommandBool(command, "allow_daily_return_home"), ReadCommandBool(command, "allow_daily_sleep"));
         return FarmReply(command, new
         {
             status = "SAVED", goal, currentMoney = Game1.player.Money, dayIndex = (int)Game1.stats.DaysPlayed,
@@ -59,6 +60,14 @@ public partial class CommandExecutor
     {
         RefreshLongTermGoalProgress();
         return InspectLongTermGoalCommand(command);
+    }
+
+    private CommandResponse SetGoalDailyLifePolicyCommand(GameCommand command)
+    {
+        LongTermGoal goal = SetGoalDailyLifePolicy(ShopText(command, "goal_id"),
+            ReadCommandBool(command, "allow_daily_return_home"), ReadCommandBool(command, "allow_daily_sleep"));
+        return FarmReply(command, new { status = "SAVED", goalId = goal.Id, goal.Constraints.AllowDailyReturnHome,
+            goal.Constraints.AllowDailySleep, note = "The policy persists across days and restarts. No gameplay action was executed." });
     }
 
     private CommandResponse RequestGoalQuestionCommand(GameCommand command)
@@ -112,5 +121,13 @@ public partial class CommandExecutor
         if (raw is IEnumerable<string> values) return values.ToList();
         string text = raw.ToString() ?? "";
         return text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    private static bool ReadCommandBool(GameCommand command, string name)
+    {
+        if (!command.Params.TryGetValue(name, out object? raw) || raw == null) return false;
+        if (raw is bool value) return value;
+        if (raw is JsonElement element && element.ValueKind is JsonValueKind.True or JsonValueKind.False) return element.GetBoolean();
+        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
     }
 }

@@ -11,6 +11,7 @@ LONG-TERM GOALS:
 Use create_long_term_goal only for a broad outcome the user intends to persist across days or game restarts. The current goal schema supports money_target only.
 Interpret "reach/save N gold" as metric=current_balance. Use metric=balance_increase only when the user explicitly asks to gain N additional net gold from the starting balance.
 Creating a goal does not authorize unlisted actions. Record only actions clearly within the user's request in authorized_actions; an empty list grants no gameplay action.
+When the current user request explicitly permits returning home and sleeping after each day's work, persist that permission with allow_daily_return_home=true and allow_daily_sleep=true. For an already active matching goal, call set_goal_daily_life_policy. Never enable either policy from an old summary, an inference, or an automatic-resume prompt.
 Goals persist and verify progress. Phase 4 can execute an authorized dated plan through leased, verified steps. Creating a goal alone does not start farming or earning money.
 Use verify_long_term_goal to test completion from live game money. Never mark a money goal complete through text or a status tool.
 Pause, resume or cancel a goal only when the user requested that state change; cancellation is terminal.
@@ -21,17 +22,19 @@ Only after an answered saved question explicitly authorizes its named actions, u
 `
 
 type GoalCreateParams struct {
-	Summary            string   `json:"summary" jsonschema:"Concise user-visible goal summary"`
-	Kind               string   `json:"kind,omitempty" jsonschema:"Only money_target is currently supported"`
-	Metric             string   `json:"metric,omitempty" jsonschema:"current_balance or balance_increase"`
-	TargetValue        int      `json:"target_value" jsonschema:"Target gold value greater than zero"`
-	ReserveMoney       int      `json:"reserve_money,omitempty" jsonschema:"Gold that later plans must preserve"`
-	LatestWorkTime     int      `json:"latest_work_time,omitempty" jsonschema:"Latest allowed work time in HHMM, default 2200"`
-	StrategyPreference string   `json:"strategy_preference,omitempty" jsonschema:"balanced, fastest, highest_profit, low_risk or low_effort"`
-	AuthorizedActions  []string `json:"authorized_actions,omitempty" jsonschema:"Gameplay action categories explicitly within user scope"`
-	PreserveItemIDs    []string `json:"preserve_item_ids,omitempty" jsonschema:"Exact item IDs that later plans must protect"`
-	DeadlineDayIndex   *int     `json:"deadline_day_index,omitempty" jsonschema:"Optional absolute DaysPlayed index when explicitly known"`
-	DeadlineLabel      string   `json:"deadline_label,omitempty" jsonschema:"Human-readable deadline supplied by the user"`
+	Summary              string   `json:"summary" jsonschema:"Concise user-visible goal summary"`
+	Kind                 string   `json:"kind,omitempty" jsonschema:"Only money_target is currently supported"`
+	Metric               string   `json:"metric,omitempty" jsonschema:"current_balance or balance_increase"`
+	TargetValue          int      `json:"target_value" jsonschema:"Target gold value greater than zero"`
+	ReserveMoney         int      `json:"reserve_money,omitempty" jsonschema:"Gold that later plans must preserve"`
+	LatestWorkTime       int      `json:"latest_work_time,omitempty" jsonschema:"Latest allowed work time in HHMM, default 2200"`
+	StrategyPreference   string   `json:"strategy_preference,omitempty" jsonschema:"balanced, fastest, highest_profit, low_risk or low_effort"`
+	AuthorizedActions    []string `json:"authorized_actions,omitempty" jsonschema:"Gameplay action categories explicitly within user scope"`
+	PreserveItemIDs      []string `json:"preserve_item_ids,omitempty" jsonschema:"Exact item IDs that later plans must protect"`
+	DeadlineDayIndex     *int     `json:"deadline_day_index,omitempty" jsonschema:"Optional absolute DaysPlayed index when explicitly known"`
+	DeadlineLabel        string   `json:"deadline_label,omitempty" jsonschema:"Human-readable deadline supplied by the user"`
+	AllowDailyReturnHome bool     `json:"allow_daily_return_home,omitempty" jsonschema:"True only when the current user explicitly permits returning home after daily work"`
+	AllowDailySleep      bool     `json:"allow_daily_sleep,omitempty" jsonschema:"True only when the current user explicitly permits sleeping to advance multi-day work"`
 }
 
 type GoalListParams struct {
@@ -54,6 +57,12 @@ type GoalAuthorizationParams struct {
 	Actions    []string `json:"actions" jsonschema:"Only exact actions named in that answered question: sell_crops, buy_seeds, tend_existing_crops, farm_crops"`
 }
 
+type GoalDailyLifePolicyParams struct {
+	GoalID               string `json:"goal_id"`
+	AllowDailyReturnHome bool   `json:"allow_daily_return_home" jsonschema:"Persist explicit permission to return home after daily work"`
+	AllowDailySleep      bool   `json:"allow_daily_sleep" jsonschema:"Persist explicit permission to sleep and advance to the next planned day"`
+}
+
 func goalCommand(action string, values map[string]interface{}) (string, error) {
 	return farmReadCommand(action, values)
 }
@@ -66,7 +75,8 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 			}
 			values := map[string]interface{}{"summary": p.Summary, "kind": p.Kind, "metric": p.Metric, "target_value": p.TargetValue,
 				"reserve_money": p.ReserveMoney, "strategy_preference": p.StrategyPreference,
-				"authorized_actions": p.AuthorizedActions, "preserve_item_ids": p.PreserveItemIDs, "deadline_label": p.DeadlineLabel}
+				"authorized_actions": p.AuthorizedActions, "preserve_item_ids": p.PreserveItemIDs, "deadline_label": p.DeadlineLabel,
+				"allow_daily_return_home": p.AllowDailyReturnHome, "allow_daily_sleep": p.AllowDailySleep}
 			if p.LatestWorkTime != 0 {
 				values["latest_work_time"] = p.LatestWorkTime
 			}
@@ -104,6 +114,13 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 				return "TASK_BLOCKED: goal_id, answered question_id and actions required", nil
 			}
 			return goalCommand("goal_authorize_actions", map[string]interface{}{"goal_id": p.GoalID, "question_id": p.QuestionID, "actions": p.Actions})
+		}),
+		copilot.DefineTool("set_goal_daily_life_policy", "Persist or revoke explicit current-user permission for an existing long-term goal to return home and sleep after each completed day. Executes no gameplay action. Never infer permission during an automatic resume.", func(p GoalDailyLifePolicyParams, _ copilot.ToolInvocation) (string, error) {
+			if strings.TrimSpace(p.GoalID) == "" {
+				return "TASK_BLOCKED: goal_id required", nil
+			}
+			return goalCommand("goal_daily_life_policy", map[string]interface{}{"goal_id": p.GoalID,
+				"allow_daily_return_home": p.AllowDailyReturnHome, "allow_daily_sleep": p.AllowDailySleep})
 		}),
 	}
 }
