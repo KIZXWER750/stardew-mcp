@@ -175,7 +175,10 @@ public partial class CommandExecutor
             .OrderByDescending(p => p.Status == GoalStatuses.Active || p.Status == GoalStatuses.AwaitingUser).ThenByDescending(p => p.UpdatedAtUtc).FirstOrDefault();
         if (goal == null) return "";
         string state = goal.Status == GoalStatuses.AwaitingUser ? "응답 대기" : goal.Status;
-        return $"장기 목표 · {state}\n{goal.Summary}\n{goal.Progress.CurrentValue:N0} / {goal.Progress.TargetValue:N0}g ({goal.Progress.Percent:0.#}%)";
+        string plan = goal.Plan.Status == GoalPlanStatuses.Ready
+            ? $"\n계획 · {goal.Plan.StrategyTitle}"
+            : goal.Plan.Status == GoalPlanStatuses.Stale ? "\n계획 · 재계획 필요" : "";
+        return $"장기 목표 · {state}\n{goal.Summary}\n{goal.Progress.CurrentValue:N0} / {goal.Progress.TargetValue:N0}g ({goal.Progress.Percent:0.#}%){plan}";
     }
 
     public void PauseActiveLongTermGoalsByUser()

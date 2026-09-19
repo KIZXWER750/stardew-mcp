@@ -20,6 +20,7 @@ public partial class CommandExecutor
         public string HarvestName { get; set; } = "";
         public string Source { get; set; } = "";
         public int AvailableSeeds { get; set; }
+        public int PaidSeeds { get; set; }
         public int Tiles { get; set; }
         public int SeedPrice { get; set; }
         public int UnitSellPrice { get; set; }
@@ -100,7 +101,8 @@ public partial class CommandExecutor
             if (tiles == 0) continue;
             int minYield = Math.Max(1, MemberInt(data, "HarvestMinStack", 1));
             int maxYield = Math.Max(minYield, MemberInt(data, "HarvestMaxStack", minYield));
-            double expectedYield = (minYield + maxYield) / 2d + Math.Max(0, Convert.ToDouble(ShopMember(data, "ExtraHarvestChance") ?? 0d));
+            double extraChance = Math.Clamp(Convert.ToDouble(ShopMember(data, "ExtraHarvestChance") ?? 0d), 0, 0.99);
+            double expectedYield = (minYield + maxYield) / 2d + extraChance / (1d - extraChance);
             int paidSeeds = Math.Max(0, tiles - owned);
             var projection = CropProfitMath.Calculate(new CropProfitInput { GrowthDays = growth,
                 RegrowDays = MemberInt(data, "RegrowDays", -1), DaysRemaining = daysRemaining, Tiles = tiles,
@@ -110,7 +112,7 @@ public partial class CommandExecutor
             projection.ExpectedProfit = projection.ExpectedRevenue - projection.UpfrontCost;
             result.Add(new CropOption { SeedItemId = seedId, SeedName = seed.DisplayName, HarvestItemId = harvestId,
                 HarvestName = harvest.DisplayName, Source = owned >= tiles ? "inventory" : owned > 0 ? "inventory_and_pierre_catalog" : "pierre_catalog",
-                AvailableSeeds = owned, Tiles = tiles, SeedPrice = price, UnitSellPrice = harvestObject.sellToStorePrice(),
+                AvailableSeeds = owned, PaidSeeds = paidSeeds, Tiles = tiles, SeedPrice = price, UnitSellPrice = harvestObject.sellToStorePrice(),
                 GrowthDays = growth, RegrowDays = MemberInt(data, "RegrowDays", -1), ExpectedYield = expectedYield, Projection = projection });
         }
         return result.OrderByDescending(p => p.Projection.ExpectedProfit).ThenBy(p => p.GrowthDays).Take(24).ToList();
@@ -120,12 +122,15 @@ public partial class CommandExecutor
     {
         string[] tools = { "Hoe", "Pickaxe", "Axe", "Watering Can", "Scythe" };
         var toolState = tools.Select(p => new { name = p, available = FarmToolSlot(p) >= 0 }).ToList();
-        return FarmReply(command, new { status = "OBSERVED", version = "1.17.0", toolState,
+        return FarmReply(command, new { status = "OBSERVED", version = "1.18.0", toolState,
             capabilities = new object[] {
                 new {id="goal.money.persistence",supported=true,mode="verified_state"},
                 new {id="economy.observe",supported=true,mode="read_only"},
                 new {id="economy.crop_profit",supported=true,mode="read_only_installed_game_data"},
                 new {id="economy.profit_opportunities",supported=true,mode="read_only_candidates"},
+                new {id="goal.strategy_selection",supported=true,mode="persistent_read_only_plan"},
+                new {id="goal.daily_plan",supported=true,mode="persistent_read_only_plan"},
+                new {id="goal.plan_revalidation",supported=true,mode="state_fingerprint"},
                 new {id="farm.restore_tilled_soil",supported=true,mode="verified_gameplay_input"},
                 new {id="farm.crop_cycle",supported=true,mode="explicit_bounded_actions"},
                 new {id="profit.shipping_bin",supported=false,mode="unavailable"},
@@ -190,6 +195,6 @@ public partial class CommandExecutor
             coversRemaining=remaining>0&&p.Projection.ExpectedProfit>=remaining,seedItemId=p.SeedItemId,requiredActions=new[]{"confirm plot","obtain seeds if needed","till","plant","water daily","harvest","sell"}}));
         return FarmReply(command,new {status="ANALYZED",goal=goal==null?null:new {goal.Id,goal.Summary,remainingGold=remaining,goal.Constraints},strategies,
             excludedStrategies=new[]{new {id="shipping_bin",reason="no verified shipping-bin function"},new {id="fishing",reason="no verified fishing function"},new {id="mining",reason="no verified mining-profit loop"}},
-            note="Candidates are comparisons only. This phase does not select or execute a strategy; every mutating action still requires goal authorization and live preflight."});
+            note="Candidates are comparisons only. This function does not select or execute a strategy; build_goal_plan may persist a selection, while every mutating action still requires goal authorization and live preflight."});
     }
 }

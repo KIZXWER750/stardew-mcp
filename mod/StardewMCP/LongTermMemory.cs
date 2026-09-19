@@ -281,7 +281,9 @@ public partial class CommandExecutor
             }
             catch (Exception ex) { _monitor.Log($"[MEMORY] Existing {key} is unreadable; retaining prior backup: {ex.Message}", LogLevel.Warn); }
             if (previous != null) _helper.Data.WriteSaveData(key + "-backup", previous);
-            document.SchemaVersion = MemorySchema.CurrentVersion;
+            // Each document family owns its schema version. In particular, goals
+            // may evolve independently from notebook/task memory.
+            document = normalize(document);
             document.Revision++;
             document.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
             _helper.Data.WriteSaveData(key, document);

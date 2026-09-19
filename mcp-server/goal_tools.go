@@ -11,11 +11,12 @@ LONG-TERM GOALS:
 Use create_long_term_goal only for a broad outcome the user intends to persist across days or game restarts. The current goal schema supports money_target only.
 Interpret "reach/save N gold" as metric=current_balance. Use metric=balance_increase only when the user explicitly asks to gain N additional net gold from the starting balance.
 Creating a goal does not authorize unlisted actions. Record only actions clearly within the user's request in authorized_actions; an empty list grants no gameplay action.
-Goals persist and verify progress. Phase 2 can analyze profit strategies through the economic tools but does not autonomously select or execute them. Never claim that creating a goal started farming or earning money.
+Goals persist and verify progress. Phase 3 can select and persist a dated plan through the economic tools but does not execute plan steps. Never claim that creating a goal started farming or earning money.
 Use verify_long_term_goal to test completion from live game money. Never mark a money goal complete through text or a status tool.
 Pause, resume or cancel a goal only when the user requested that state change; cancellation is terminal.
 If essential information cannot be safely inferred, create a draft/active goal with the known scope and call request_goal_input once with one concise question and at most six options. The game will show a dedicated response window. After requesting input, stop this run and do not guess.
 Do not ask through ordinary final chat when request_goal_input is available. A later continuation contains the saved answer; inspect the goal before continuing.
+Only after an answered saved question explicitly authorizes its named actions, use apply_goal_action_authorization with that question ID and the exact named actions, then refresh_goal_plan.
 `
 
 type GoalCreateParams struct {
@@ -44,6 +45,12 @@ type GoalInputParams struct {
 	GoalID   string   `json:"goal_id"`
 	Question string   `json:"question" jsonschema:"One concise question essential to continue"`
 	Options  []string `json:"options,omitempty" jsonschema:"Zero to six short suggested answers"`
+}
+
+type GoalAuthorizationParams struct {
+	GoalID     string   `json:"goal_id"`
+	QuestionID string   `json:"question_id" jsonschema:"Answered question ID from inspect_long_term_goal"`
+	Actions    []string `json:"actions" jsonschema:"Only exact actions named in that answered question: sell_crops, buy_seeds, farm_crops"`
 }
 
 func goalCommand(action string, values map[string]interface{}) (string, error) {
@@ -90,6 +97,12 @@ func (a *StardewAgent) defineGoalTools() []copilot.Tool {
 				return "TASK_BLOCKED: goal_id, one question and at most six options required", nil
 			}
 			return goalCommand("goal_question", map[string]interface{}{"goal_id": p.GoalID, "question": p.Question, "options": p.Options})
+		}),
+		copilot.DefineTool("apply_goal_action_authorization", "After a dedicated goal question has a saved affirmative user answer, copy only the exact actions named by that question into the goal authorization list. Executes no gameplay action.", func(p GoalAuthorizationParams, _ copilot.ToolInvocation) (string, error) {
+			if strings.TrimSpace(p.GoalID) == "" || strings.TrimSpace(p.QuestionID) == "" || len(p.Actions) == 0 {
+				return "TASK_BLOCKED: goal_id, answered question_id and actions required", nil
+			}
+			return goalCommand("goal_authorize_actions", map[string]interface{}{"goal_id": p.GoalID, "question_id": p.QuestionID, "actions": p.Actions})
 		}),
 	}
 }

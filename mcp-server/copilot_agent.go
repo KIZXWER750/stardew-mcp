@@ -996,8 +996,9 @@ Surrounding area is auto-cleared so pattern is visible.`,
 	config := &copilot.SessionConfig{
 		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		AvailableTools: []string{
-			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input",
+			"create_long_term_goal", "list_long_term_goals", "inspect_long_term_goal", "verify_long_term_goal", "pause_long_term_goal", "resume_long_term_goal", "cancel_long_term_goal", "request_goal_input", "apply_goal_action_authorization",
 			"inspect_capability_registry", "assess_economic_state", "analyze_crop_profit_options", "find_profit_opportunities",
+			"build_goal_plan", "inspect_goal_plan", "refresh_goal_plan",
 			"search_memory", "get_chest_memory", "set_chest_purpose", "remember_note", "list_persistent_tasks", "upsert_persistent_task", "complete_persistent_task", "lookup_game_knowledge", "find_world_route",
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
@@ -1014,7 +1015,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
 			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, restoreTilledSoilTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
-			economicTools[0], economicTools[1], economicTools[2], economicTools[3],
+			economicTools[0], economicTools[1], economicTools[2], economicTools[3], economicTools[4], economicTools[5], economicTools[6],
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,
 			useToolRepeatTool, faceDirectionTool, selectItemTool, switchToolTool,

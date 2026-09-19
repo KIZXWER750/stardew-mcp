@@ -7,20 +7,36 @@ import (
 )
 
 const economicToolRules = `
-ECONOMIC PLANNING (PHASE 2):
+ECONOMIC PLANNING:
 Use inspect_capability_registry before proposing a broad money-goal plan so unsupported earning methods are excluded.
 Use assess_economic_state for live money, energy, inventory sale value, planted crops and active money-goal constraints.
 Use analyze_crop_profit_options to compare current-season crop choices from installed game CropData and Pierre catalog data.
 Use find_profit_opportunities to produce goal-aware candidates. These functions are read-only and their projections are estimates.
-Phase 2 never selects or executes a strategy automatically. Before any purchase, farming or sale, inspect live prerequisites and
+Phase 3 may select and persist a strategy through build_goal_plan, but it never executes a plan step. Before any purchase, farming or sale, inspect live prerequisites and
 confirm the action is included in the goal's authorized_actions. Preserve reserve money and protected item IDs. Shop conditions,
 stock, routes, weather and actual crop results remain live facts and override projections.
+Use inspect_goal_plan before relying on a saved plan. If stale=true, call refresh_goal_plan. A blocked plan with
+requiresUserInput=true must be followed by request_goal_input so the dedicated in-game response window collects authorization.
+Pass its suggestedQuestion and suggestedOptions unchanged so the saved answer can be validated against the named actions.
+Never treat a generated plan, candidate ranking, or suggested question as permission to execute gameplay actions.
 `
 
 type EconomicParams struct {
 	GoalID       string `json:"goal_id,omitempty" jsonschema:"Optional active money goal ID"`
 	MaxTiles     int    `json:"max_tiles,omitempty" jsonschema:"Maximum proposed crop tiles, 1..64; default 16"`
 	ReserveMoney int    `json:"reserve_money,omitempty" jsonschema:"Gold which projections must preserve"`
+}
+
+type GoalPlanParams struct {
+	GoalID   string `json:"goal_id" jsonschema:"Active persistent money goal ID"`
+	MaxTiles int    `json:"max_tiles,omitempty" jsonschema:"Maximum planned crop tiles, 1..64; default 16"`
+}
+
+func (p GoalPlanParams) values() (map[string]interface{}, error) {
+	if p.GoalID == "" || p.MaxTiles < 0 || p.MaxTiles > 64 {
+		return nil, fmt.Errorf("goal_id required and max_tiles must be 1..64 when provided")
+	}
+	return map[string]interface{}{"goal_id": p.GoalID, "max_tiles": p.MaxTiles}, nil
 }
 
 func (p EconomicParams) values() (map[string]interface{}, error) {
@@ -51,6 +67,27 @@ func (a *StardewAgent) defineEconomicTools() []copilot.Tool {
 				return "TASK_BLOCKED: " + err.Error(), nil
 			}
 			return farmReadCommand("profit_opportunities", v)
+		}),
+		copilot.DefineTool("build_goal_plan", "Select one supported profit strategy using the goal preference, reserve, deadline, action authorization and protected items; persist an ordered date-based plan. Returns a dedicated-question recommendation if authorization is missing. Does not execute steps.", func(p GoalPlanParams, _ copilot.ToolInvocation) (string, error) {
+			v, err := p.values()
+			if err != nil {
+				return "TASK_BLOCKED: " + err.Error(), nil
+			}
+			return farmReadCommand("goal_plan_build", v)
+		}),
+		copilot.DefineTool("inspect_goal_plan", "Read a persisted goal strategy and dated steps, and compare its planning fingerprint with current money, date, inventory and constraints. Does not execute steps.", func(p GoalPlanParams, _ copilot.ToolInvocation) (string, error) {
+			v, err := p.values()
+			if err != nil {
+				return "TASK_BLOCKED: " + err.Error(), nil
+			}
+			return farmReadCommand("goal_plan_inspect", v)
+		}),
+		copilot.DefineTool("refresh_goal_plan", "Recompute and replace a stale or blocked goal plan from current live economic state. Rechecks authorization and deadline. Does not execute steps.", func(p GoalPlanParams, _ copilot.ToolInvocation) (string, error) {
+			v, err := p.values()
+			if err != nil {
+				return "TASK_BLOCKED: " + err.Error(), nil
+			}
+			return farmReadCommand("goal_plan_refresh", v)
 		}),
 	}
 }

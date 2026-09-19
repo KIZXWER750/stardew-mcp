@@ -46,7 +46,7 @@ public class ModEntry : Mod
             }
             string goalText=_commandExecutor?.GetLongTermGoalHudText()??"";
             if(goalText!="") {
-                int panelWidth=500,panelHeight=116;
+                int panelWidth=500,panelHeight=142;
                 var panel=new Microsoft.Xna.Framework.Rectangle(Game1.uiViewport.Width-panelWidth-18,Game1.uiViewport.Height-panelHeight-18,panelWidth,panelHeight);
                 e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.78f);
                 e.SpriteBatch.DrawString(Game1.smallFont,Game1.parseText(goalText,Game1.smallFont,panelWidth-28),
@@ -128,6 +128,7 @@ public class ModEntry : Mod
         // Detect manual chest moves and content changes without requiring an AI command.
         _commandExecutor?.RefreshCurrentLocationChestMemory();
         _commandExecutor?.RefreshLongTermGoalProgress();
+        _commandExecutor?.RefreshGoalPlanFreshness();
 
         // Broadcast game state to connected clients
         _wsServer?.BroadcastState();

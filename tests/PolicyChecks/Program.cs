@@ -91,4 +91,11 @@ var regrowProfit=CropProfitMath.Calculate(new CropProfitInput{GrowthDays=5,Regro
 Check(regrowProfit.Harvests==3 && regrowProfit.ExpectedProfit==500,"Regrowing crops must count only harvests inside the season window");
 var tooLate=CropProfitMath.Calculate(new CropProfitInput{GrowthDays=13,RegrowDays=-1,DaysRemaining=12,Tiles=4,SeedPrice=10,UnitSellPrice=100});
 Check(tooLate.Harvests==0 && tooLate.ExpectedProfit==-40,"Too-late planting must not invent a harvest");
-Console.WriteLine("41 policy, memory, knowledge, goal and economy regression checks passed.");
+var quick=new GoalPlanCandidate{Id="sell",ExpectedGold=600,ExpectedProfit=600,Days=0,WorkUnits=4,Confidence="high"};
+var profitable=new GoalPlanCandidate{Id="crop",ExpectedGold=1800,ExpectedProfit=1200,Days=5,WorkUnits=100,Confidence="medium"};
+Check(GoalPlanPolicy.Select(new[]{quick,profitable},"fastest",1000)?.Id=="sell","Fastest strategy must prefer the earliest verified return");
+Check(GoalPlanPolicy.Select(new[]{quick,profitable},"highest_profit",1000)?.Id=="crop","Highest-profit strategy must prefer net profit");
+Check(GoalPlanPolicy.Select(new[]{quick,profitable},"balanced",1000)?.Id=="crop","Balanced strategy must prefer a candidate covering the remaining target");
+var migratedGoalDocument=GoalSchema.Normalize(new GoalDocument{SchemaVersion=1,Goals=new(){new LongTermGoal{Id="planned",Summary="Plan",Money=new MoneyGoalSpec{TargetValue=100}}}});
+Check(migratedGoalDocument.SchemaVersion==2 && migratedGoalDocument.Goals[0].Plan.Status==GoalPlanStatuses.None,"Goal schema v1 must migrate to persistent plan schema v2");
+Console.WriteLine("45 policy, memory, knowledge, goal and economy regression checks passed.");

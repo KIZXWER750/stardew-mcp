@@ -26,7 +26,7 @@ public partial class CommandExecutor
         return FarmReply(command, new
         {
             status = "SAVED", goal, currentMoney = Game1.player.Money, dayIndex = (int)Game1.stats.DaysPlayed,
-            note = "The goal is persistent. Phase 2 can compare profit candidates but does not autonomously select or execute them. Completion is verified from live money."
+            note = "The goal is persistent. Phase 3 can select and save a dated plan but does not execute plan steps. Completion is verified from live money."
         });
     }
 
@@ -70,6 +70,37 @@ public partial class CommandExecutor
             status = "USER_INPUT_REQUIRED", goalId = goal.Id, question = goal.PendingQuestion,
             note = "The in-game response window will open after the current AI run stops. End this run without guessing an answer."
         });
+    }
+
+    private CommandResponse ApplyGoalActionAuthorizationCommand(GameCommand command)
+    {
+        LongTermGoal goal = FindGoal(ShopText(command, "goal_id"));
+        string questionId = ShopText(command, "question_id").Trim();
+        GoalQuestion question = goal.QuestionHistory.FirstOrDefault(p => p.Id.Equals(questionId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Unknown goal question_id.");
+        if (question.Status != "answered" || string.IsNullOrWhiteSpace(question.Answer))
+            throw new InvalidOperationException("The referenced question has no saved user answer.");
+        string answer = question.Answer.Trim().ToLowerInvariant();
+        bool affirmative = (answer.Contains("허용") && !answer.Contains("허용하지") && !answer.Contains("계획만"))
+            || answer is "yes" or "y" or "allow" or "allow all";
+        if (!affirmative) throw new InvalidOperationException("The saved answer does not explicitly authorize actions.");
+        HashSet<string> supported = new(StringComparer.OrdinalIgnoreCase) { "sell_crops", "buy_seeds", "farm_crops" };
+        List<string> actions = ReadStringList(command, "actions").Select(NormalizeGoalAction).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (actions.Count == 0 || actions.Any(p => !supported.Contains(p)))
+            throw new InvalidOperationException("Actions must contain only sell_crops, buy_seeds or farm_crops.");
+        if (actions.Any(p => !question.Prompt.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("The saved question did not name every requested action.");
+        foreach (string action in actions)
+            if (!goal.Constraints.AuthorizedActions.Select(NormalizeGoalAction).Contains(action, StringComparer.OrdinalIgnoreCase))
+                goal.Constraints.AuthorizedActions.Add(action);
+        if (goal.Plan.Status != GoalPlanStatuses.None)
+        {
+            goal.Plan.Status = GoalPlanStatuses.Stale;
+            goal.Plan.BlockedReason = "AUTHORIZATION_UPDATED";
+        }
+        TouchGoal(goal); _goalsDirty = true; FlushLongTermMemory();
+        return FarmReply(command, new { status = "SAVED", goalId = goal.Id, authorizedActions = goal.Constraints.AuthorizedActions,
+            sourceQuestionId = question.Id, sourceAnswer = question.Answer, note = "Refresh the goal plan. This command executes no gameplay action." });
     }
 
     private static List<string> ReadStringList(GameCommand command, string name)
