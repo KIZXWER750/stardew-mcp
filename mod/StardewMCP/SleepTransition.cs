@@ -20,6 +20,7 @@ public partial class CommandExecutor
     private Vector2? morningStartPosition;
     private int morningStartTime;
     private bool morningMovementVerified;
+    private bool morningClickIssued;
     public void CancelSleepTransition() {sleepAnswered=false;sleepStartDate=null;}
 
     public void ProcessOvernightCommands()
@@ -82,9 +83,9 @@ public partial class CommandExecutor
                 morningMovementVerified=true;
                 _monitor.Log($"[MORNING MOVEMENT VERIFIED] start=({morningStartPosition.Value.X:0},{morningStartPosition.Value.Y:0}), current=({Game1.player.Position.X:0},{Game1.player.Position.Y:0})",LogLevel.Info);
             }
-            if(Game1.player.CanMove && morningMovementVerified && timePasses && Game1.timeOfDay>morningStartTime) {
+            if(Game1.player.CanMove && morningClickIssued && timePasses && Game1.timeOfDay>morningStartTime) {
                 morningReady=true;
-                _monitor.Log($"[MORNING VERIFIED] attempts={morningInputAttempts}, newDay={Game1.newDay}, time={Game1.timeOfDay}, tile=({(int)Game1.player.Tile.X},{(int)Game1.player.Tile.Y}), positionChanged={morningMovementVerified}",LogLevel.Info);
+                _monitor.Log($"[MORNING VERIFIED] attempts={morningInputAttempts}, leftClick={morningClickIssued}, newDay={Game1.newDay}, time={Game1.timeOfDay}, tile=({(int)Game1.player.Tile.X},{(int)Game1.player.Tile.Y}), positionChanged={morningMovementVerified}",LogLevel.Info);
                 return;
             }
             // DayStarted fires before the wake-up fade has necessarily restored
@@ -101,7 +102,15 @@ public partial class CommandExecutor
                 morningControllableAt=DateTime.UtcNow;
                 morningStartPosition=Game1.player.Position;
                 morningStartTime=Game1.timeOfDay;
-                _monitor.Log($"[MORNING CONTROLLABLE] date={SleepDate()}, time={Game1.timeOfDay}; sending normal movement input to start the clock.",LogLevel.Info);
+                _monitor.Log($"[MORNING CONTROLLABLE] date={SleepDate()}, time={Game1.timeOfDay}; sending one left click to release the morning clock gate.",LogLevel.Info);
+            }
+            if(!morningClickIssued) {
+                _helper.Input.Press(SButton.MouseLeft);
+                morningClickIssued=true;
+                morningInputAttempts++;
+                nextSleepInput=DateTime.UtcNow.AddMilliseconds(1000);
+                _monitor.Log($"[MORNING CLICK] button={SButton.MouseLeft}, newDay={Game1.newDay}, canMove={Game1.player.CanMove}",LogLevel.Info);
+                return;
             }
             if((DateTime.UtcNow-morningControllableAt).TotalSeconds>=30) {
                 sleepTransitionError=$"MORNING_INPUT_NOT_VERIFIED: controllable for 30 seconds; newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}, attempts={morningInputAttempts}";

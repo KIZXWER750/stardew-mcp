@@ -7,7 +7,7 @@ import (
 
 type AnalyzeParams struct {
 	PlotParams
-	Operation string `json:"operation" jsonschema:"clear, till, restore_soil, prepare, plant, water, or harvest"`
+	Operation string `json:"operation" jsonschema:"clear, till, restore_soil, prepare, plant, water, harvest, or remove_dead_crops"`
 }
 type WaterSourceParams struct {
 	SearchRadius int `json:"search_radius,omitempty" jsonschema:"Search radius around player: 1..64, default 32"`

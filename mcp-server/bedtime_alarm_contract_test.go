@@ -46,7 +46,7 @@ func TestMorningGateReceivesNormalInputWhileNewDayIsTrue(t *testing.T) {
 	transition := string(transitionBytes)
 	for _, required := range []string{
 		"[MORNING GATE]", "[MORNING TRANSITION WAIT]", "[MORNING CONTROLLABLE]", "[MORNING INPUT]", "[MORNING VERIFIED]",
-		"morningMovementVerified && timePasses && Game1.timeOfDay>morningStartTime", "_helper.Input.Press(morningButton)",
+		"morningClickIssued && timePasses && Game1.timeOfDay>morningStartTime", "_helper.Input.Press(SButton.MouseLeft)", "[MORNING CLICK]", "_helper.Input.Press(morningButton)",
 		"Vector2.DistanceSquared(Game1.player.Position,morningStartPosition.Value)>=4f", "[MORNING MOVEMENT VERIFIED]",
 		"Game1.options.moveLeftButton", "Game1.options.moveRightButton",
 		"Game1.options.moveDownButton", "Game1.options.moveUpButton", "if(!Game1.player.CanMove)",

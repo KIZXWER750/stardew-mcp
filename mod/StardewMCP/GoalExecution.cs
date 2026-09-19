@@ -241,6 +241,9 @@ public partial class CommandExecutor
                 if (now.PreparedTiles < Math.Max(step.BeforePreparedTiles, goal.Plan.Plot?.Width * goal.Plan.Plot?.Height ?? 0))
                     throw new InvalidOperationException("The entire bound plot is not verified as prepared soil/crops.");
                 break;
+            case "remove_dead_crops":
+                if (now.DeadCropTiles > 0) throw new InvalidOperationException("Dead crops remain in the bound plot.");
+                break;
             case "plant_plot":
                 if (now.CropTiles - step.BeforeCropTiles < StepInt(step, "tiles")) throw new InvalidOperationException("The planned crop count was not verified in the bound plot.");
                 break;
@@ -263,7 +266,7 @@ public partial class CommandExecutor
 
     private bool TryReconcileInterruptedStep(LongTermGoal goal, GoalPlanStep step)
     {
-        if (step.Action is not ("buy_shop_item" or "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot" or "sell_crop_stack")) return false;
+        if (step.Action is not ("buy_shop_item" or "remove_dead_crops" or "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot" or "sell_crop_stack")) return false;
         try { VerifyCompletedPlanStep(goal, step, "reconciled verified state"); return true; }
         catch (InvalidOperationException) { return false; }
     }
@@ -271,7 +274,8 @@ public partial class CommandExecutor
     private bool CanSkipPlanStep(LongTermGoal goal, GoalPlanStep step)
     {
         GoalFarmSnapshot now = CaptureFarmSnapshot(goal);
-        return step.Action == "water_plot" && now.DryCropTiles == 0;
+        return step.Action == "remove_dead_crops" && now.DeadCropTiles == 0
+            || step.Action == "water_plot" && now.DryCropTiles == 0;
     }
 
     private void CaptureBeforeSnapshot(LongTermGoal goal, GoalPlanStep step)
@@ -296,8 +300,9 @@ public partial class CommandExecutor
             result.PreparedTiles++;
             if (dirt.crop == null) continue;
             result.CropTiles++;
-            if (dirt.state.Value != 1) result.DryCropTiles++;
             var crop = dirt.crop;
+            if (crop.dead.Value) { result.DeadCropTiles++; continue; }
+            if (dirt.state.Value != 1) result.DryCropTiles++;
             if (!crop.dead.Value && crop.phaseDays.Count > 0 && crop.currentPhase.Value >= crop.phaseDays.Count - 1
                 && (!crop.fullyGrown.Value || crop.dayOfCurrentPhase.Value <= 0)) result.ReadyCropTiles++;
         }
@@ -327,7 +332,7 @@ public partial class CommandExecutor
         return step.Action switch
         {
             "buy_shop_item" => "buy_seeds",
-            "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot" or "select_farm_plot" => "farm_crops",
+            "remove_dead_crops" or "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot" or "select_farm_plot" => "farm_crops",
             "sell_crop_stack" => "sell_crops",
             _ => ""
         };
@@ -345,7 +350,7 @@ public partial class CommandExecutor
         return step;
     }
 
-    private static bool IsFarmStep(string action) => action is "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot";
+    private static bool IsFarmStep(string action) => action is "remove_dead_crops" or "prepare_plot" or "plant_plot" or "water_plot" or "harvest_plot";
     private static string PlotKey(int x, int y, int width, int height) => $"{x},{y},{width},{height}";
 
     private void RememberGoalPlotCandidates(IEnumerable<PlotCandidate> candidates)
@@ -444,6 +449,7 @@ public partial class CommandExecutor
     {
         public int PreparedTiles { get; set; }
         public int CropTiles { get; set; }
+        public int DeadCropTiles { get; set; }
         public int ReadyCropTiles { get; set; }
         public int DryCropTiles { get; set; }
     }

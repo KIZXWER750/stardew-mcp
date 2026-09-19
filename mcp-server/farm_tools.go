@@ -19,6 +19,9 @@ clear_area clears only; till_plot hoes only; prepare_plot combines them; plant_p
 restore_tilled_soil uses a pickaxe on empty HoeDirt only and verifies it became normal ground; crops and objects are excluded;
 water_plot waters eligible soil; harvest_plot harvests mature crops; remove_wild_trees removes selected ordinary
 wild trees through their stumps, then detects and collects nearby loose drops. Functions handle movement and verification.
+Crop observations distinguish dead=true with hasCrop=true from living crops. Dead crops never need water and cannot
+be planted over. When dead crops exist in an intended work area, call remove_dead_crops first; it uses the normal
+Scythe input and verifies that each dead crop disappeared before planting or watering that area.
 Every observed ordinary tree includes treeState, isStump, hitsRequired for its current state,
 estimatedTotalHitsToRemove and removalSequence. Use those fields instead of treating every axe obstacle as a one-hit twig.
 When preserving young trees or selecting a mature tree, use only treeState=mature_tree with isStump=false,

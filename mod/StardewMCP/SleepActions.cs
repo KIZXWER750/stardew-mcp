@@ -57,7 +57,7 @@ public partial class CommandExecutor
             sleepApproach = null;
             sleepEntered = false;
             sleepStarted = DateTime.UtcNow;
-            nextSleepInput=default;sleepTransitionError="";morningReady=false;morningInputAttempts=0;morningGateObserved=false;
+            nextSleepInput=default;sleepTransitionError="";morningReady=false;morningInputAttempts=0;morningGateObserved=false;morningClickIssued=false;
             morningControllableAt=default;morningTransitionWaits=0;morningStartPosition=null;morningStartTime=0;morningMovementVerified=false;
         }
 

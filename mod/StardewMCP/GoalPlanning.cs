@@ -284,6 +284,7 @@ public partial class CommandExecutor
             (int plotWidth, int plotHeight) = GoalPlanPolicy.RectangleForTiles(tiles);
             Add(startOffset, "select_farm_plot", $"{tiles}칸 농사 후보를 관측해 한 영역을 계획에 고정", inputs: new(){{"seedItemId",seedId},{"harvestItemId",harvestId},{"tiles",tiles.ToString()},{"width",plotWidth.ToString()},{"height",plotHeight.ToString()}});
             if (paidSeeds > 0) Add(startOffset, "buy_shop_item", $"예비금 {goal.Constraints.ReserveMoney}g를 보존하며 {seedId} 씨앗 {paidSeeds}개까지 구매", inputs: new(){{"seedItemId",seedId},{"quantity",paidSeeds.ToString()},{"maxTotalCost",(ReadMetaInt(selected,"seedPrice")*paidSeeds).ToString()},{"reserveMoney",goal.Constraints.ReserveMoney.ToString()}});
+            Add(startOffset, "remove_dead_crops", "고정한 영역의 시든 작물을 낫으로 먼저 제거", conditional: true);
             Add(startOffset, "prepare_plot", "계획에 고정한 명시적 영역만 정리·경작");
             Add(startOffset, "plant_plot", $"{seedId} 씨앗을 빈 경작지에 파종", inputs: new(){{"seedItemId",seedId},{"tiles",tiles.ToString()}});
             Add(startOffset, "water_plot", "파종한 작물 영역의 마른 칸만 물주기");

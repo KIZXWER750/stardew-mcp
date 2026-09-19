@@ -209,6 +209,33 @@ public partial class CommandExecutor
         return $"장기 목표 · {state}\n{goal.Summary}\n{goal.Progress.CurrentValue:N0} / {goal.Progress.TargetValue:N0}g ({goal.Progress.Percent:0.#}%){plan}";
     }
 
+    public IReadOnlyList<(string Text, bool Completed, bool Current)> GetLongTermGoalPlanHudRows()
+    {
+        if (!_memoryLoaded || !Context.IsWorldReady) return Array.Empty<(string, bool, bool)>();
+        LongTermGoal? goal = _goals.Goals.Where(p => !GoalStatuses.IsTerminal(p.Status) && p.Plan.Steps.Count > 0)
+            .OrderByDescending(p => p.Status is GoalStatuses.Active or GoalStatuses.AwaitingUser)
+            .ThenByDescending(p => p.UpdatedAtUtc).FirstOrDefault();
+        if (goal == null) return Array.Empty<(string, bool, bool)>();
+        var ordered = goal.Plan.Steps.OrderBy(p => p.Sequence).ToList();
+        int current = ordered.FindIndex(p => p.Status is not (GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped));
+        if (current < 0) current = Math.Max(0, ordered.Count - 1);
+        int start = Math.Max(0, Math.Min(current - 2, ordered.Count - 7));
+        var rows = new List<(string Text, bool Completed, bool Current)>
+        {
+            ($"AI 계획 · {goal.Plan.StrategyTitle}", false, false),
+            ($"목표 · {goal.Summary}", false, false)
+        };
+        foreach (GoalPlanStep step in ordered.Skip(start).Take(7))
+        {
+            bool completed = step.Status is GoalPlanStepStatuses.Completed or GoalPlanStepStatuses.Skipped;
+            bool active = !completed && step.Sequence == ordered[current].Sequence;
+            string prefix = completed ? "✓" : active ? "▶" : "○";
+            string summary = step.Summary.Length > 38 ? step.Summary.Substring(0, 38) + "…" : step.Summary;
+            rows.Add(($"{prefix} {step.Sequence:00} [{step.DayLabel}] {summary}", completed, active));
+        }
+        return rows;
+    }
+
     public void PauseActiveLongTermGoalsByUser()
     {
         if (!_memoryLoaded) return;

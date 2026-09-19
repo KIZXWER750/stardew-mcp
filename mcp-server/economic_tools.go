@@ -20,6 +20,7 @@ requiresUserInput=true must be followed by request_goal_input so the dedicated i
 Pass its suggestedQuestion and suggestedOptions unchanged so the saved answer can be validated against the named actions.
 Never treat a generated plan, candidate ranking, or suggested question as permission. Only start_goal_plan_execution may begin an already authorized current plan.
 An empty sellable inventory is a missing prerequisite, not completion. Continue to build_goal_plan so live existing crops can be considered before proposing seed purchase or new planting. tend_existing_crops covers only watering and harvesting crops that are already planted. If the user's explicit restrictions leave no executable candidate, use the dedicated request_goal_input flow instead of ending with an ordinary chat-only block.
+Live crop tiles with dead=true are withered crops, not growing crops. Never water them or treat them as plantable soil. A crop-cycle plan must remove them with remove_dead_crops before preparing, planting, or watering that plot.
 If build_goal_plan or refresh_goal_plan returns an internal data or command failure, do not bypass the persistent plan by calling raw mutating farm, shop, or sleep tools. Stop with the exact failure so the saved goal remains intact for repair and retry.
 `
 

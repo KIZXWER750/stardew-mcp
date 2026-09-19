@@ -160,9 +160,10 @@ public partial class CommandExecutor
         "prepare" or "till" => t.Hoed,
         "plant" => t.HasCrop && t.CropSeedId==j.SeedItemId,
         "harvest" => j.Harvested.Contains(new Point(t.X,t.Y)),
+        "remove_dead_crops" => !t.Dead,
         "trees" => !t.IsWildTree,
         "travel" => t.Obstacle=="" && !t.IsWildTree,
-        _ => t.Hoed && t.Watered
+        _ => t.Hoed && t.Watered && !t.Dead
     };
     private bool InFarmArea(FarmJob j, int x, int y) => x >= j.X && x < j.X+j.Width && y >= j.Y && y < j.Y+j.Height;
 
@@ -324,7 +325,8 @@ public partial class CommandExecutor
             for(int ty=y;ty<y+height;ty++) for(int tx=x;tx<x+width;tx++) {
                 var tile=ReadFarmTile(tx,ty);
                 if(!tile.Diggable) pc.Conflicts.Add($"({tx},{ty}):not_diggable");
-                if(tile.HasCrop) pc.Conflicts.Add($"({tx},{ty}):crop");
+                if(tile.HasCrop && !tile.Dead) pc.Conflicts.Add($"({tx},{ty}):living_crop");
+                if(tile.Dead) pc.RemovableObstacles++;
                 if(tile.Obstacle!="" && tile.ClearTool=="") pc.Conflicts.Add($"({tx},{ty}):{tile.Obstacle}");
                 if(tile.Obstacle!="" && tile.ClearTool!="") pc.RemovableObstacles++;
                 if(tile.Hoed) pc.ExistingHoeDirt++;
@@ -355,7 +357,7 @@ public partial class CommandExecutor
             throw new InvalidOperationException("BUSY: finish current action first");
         var j=ParseFarmArea(c);
         j.Operation=c.Params.TryGetValue("operation",out var op)?GetStringParam(op):"";
-        if(!new[]{"prepare","water","clear","till","restore_soil","plant","harvest","refill","trees","travel","collect"}.Contains(j.Operation)) throw new InvalidOperationException("Unknown farm operation");
+        if(!new[]{"prepare","water","clear","till","restore_soil","plant","harvest","remove_dead_crops","refill","trees","travel","collect"}.Contains(j.Operation)) throw new InvalidOperationException("Unknown farm operation");
         if(j.Operation=="collect") return FarmCollectStart(c,j,requestId,fingerprint);
         if(j.Operation=="travel") return FarmTravelStart(c,j,requestId,fingerprint);
         string filter=c.Params.TryGetValue("target_filter",out var f)?GetStringParam(f):"ALL_HOED_SOIL";
@@ -386,8 +388,9 @@ public partial class CommandExecutor
                 continue;
             }
             bool exclude=j.Operation=="water" && filter=="CROPS_ONLY" && !tile.HasCrop
-                || j.Operation=="plant" && tile.HasCrop && j.ExistingCropPolicy=="PRESERVE_AND_REPORT"
+                || j.Operation=="plant" && tile.HasCrop && !tile.Dead && j.ExistingCropPolicy=="PRESERVE_AND_REPORT"
                 || j.Operation=="harvest" && !tile.ReadyForHarvest
+                || j.Operation=="remove_dead_crops" && !tile.Dead
                 || j.Operation=="restore_soil" && (tile.HasCrop || tile.Obstacle!="");
             if(exclude) j.ExcludedTiles.Add(j.Operation=="restore_soil"
                 ? $"({x},{y}): protected from soil restoration; crop={tile.CropSeedId}, obstacle={tile.Obstacle}"
@@ -573,6 +576,8 @@ public partial class CommandExecutor
                 var t=ReadFarmTile(j.Target.X,j.Target.Y);
                 bool success=j.Operation=="restore_soil"
                     ? !t.Hoed
+                    : j.Operation=="remove_dead_crops"
+                    ? !t.Dead
                     : (j.Operation=="trees" || j.Operation=="travel" || j.Operation=="collect") && j.ActionWasTree
                     ? !t.IsWildTree
                     : j.Action=="Hoe"?t.Hoed:j.Action=="Watering Can"?t.Watered:t.Obstacle=="";
@@ -643,16 +648,19 @@ public partial class CommandExecutor
                     .OrderBy(t=>Math.Abs(t.X-player.Tile.X)+Math.Abs(t.Y-player.Tile.Y)).FirstOrDefault();
                 if(t==null) {FinishFarm(j,"BLOCKED","Remaining targets have no safe approach; other targets processed. See issues.");return;}
                 j.Target=new Point(t.X,t.Y);j.Attempts=0;
+                if(j.Operation=="water" && t.Dead) { FinishFarm(j,"BLOCKED",$"DEAD_CROP_REQUIRES_REMOVAL ({t.X},{t.Y})");return; }
                 if(j.Operation=="water" && !t.Hoed) { FinishFarm(j,"BLOCKED",$"NOT_HOED ({t.X},{t.Y})");return; }
                 if((j.Operation=="prepare" || j.Operation=="till") && !t.Diggable) { FinishFarm(j,"BLOCKED",$"NOT_DIGGABLE ({t.X},{t.Y})");return; }
                 if((j.Operation=="till" || j.Operation=="plant") && t.Obstacle!="" && t.ClearTool!="" && !t.HasCrop && !t.Hoed) {FinishFarm(j,"BLOCKED",$"CLEARING_REQUIRED ({t.X},{t.Y}): {t.Obstacle}");return;}
                 if(j.Operation!="trees" && j.Operation!="travel" && t.Obstacle!="" && ((j.Operation!="prepare" && j.Operation!="clear") || t.ClearTool=="" || t.HasCrop || t.Hoed)) { FinishFarm(j,"BLOCKED",$"PROTECTED ({t.X},{t.Y}): {t.Obstacle}");return; }
                 if(j.Operation=="plant" && !t.Hoed) {FinishFarm(j,"BLOCKED",$"NOT_HOED ({t.X},{t.Y})");return;}
+                if(j.Operation=="plant" && t.Dead) {FinishFarm(j,"BLOCKED",$"DEAD_CROP_REQUIRES_REMOVAL ({t.X},{t.Y})");return;}
                 if(j.Operation=="plant" && t.HasCrop) {FinishFarm(j,"BLOCKED",$"EXISTING_CROP_CONFLICT ({t.X},{t.Y}) crop={t.CropSeedId}");return;}
                 if(j.Operation=="harvest" && !t.ReadyForHarvest) {FinishFarm(j,"BLOCKED","CROP_CHANGED");return;}
+                if(j.Operation=="remove_dead_crops" && !t.Dead) {j.Phase="SELECT";return;}
                 if(j.Operation=="trees" && !t.IsWildTree) {j.Phase="SELECT";return;}
                 if(j.Operation=="travel" && !TravelCanClear(t)) {FinishFarm(j,"BLOCKED",$"PROTECTED_ROUTE_TILE ({t.X},{t.Y}): {t.Obstacle}");return;}
-                j.Action=FarmActionCanClearTree(j,t)?"Axe":t.Obstacle!=""?t.ClearTool:j.Operation=="restore_soil"?"Pickaxe":(j.Operation=="prepare" || j.Operation=="till")?"Hoe":j.Operation=="plant"?"Plant":j.Operation=="harvest"?"Harvest":"Watering Can";
+                j.Action=FarmActionCanClearTree(j,t)?"Axe":t.Obstacle!=""?t.ClearTool:j.Operation=="restore_soil"?"Pickaxe":j.Operation=="remove_dead_crops"?"Scythe":(j.Operation=="prepare" || j.Operation=="till")?"Hoe":j.Operation=="plant"?"Plant":j.Operation=="harvest"?"Harvest":"Watering Can";
                 j.Approaches=new List<Point>{new(t.X,t.Y-1),new(t.X-1,t.Y),new(t.X+1,t.Y),new(t.X,t.Y+1)}
                     .OrderBy(p=>InFarmArea(j,p.X,p.Y)?1:0)
                     .ThenBy(p=>Math.Abs(p.X-player.Tile.X)+Math.Abs(p.Y-player.Tile.Y)).ToList();
@@ -691,14 +699,14 @@ public partial class CommandExecutor
                 if(j.Action=="Watering Can" && (!t.Hoed || t.Obstacle!="")) {FinishFarm(j,"BLOCKED","TARGET_CHANGED");return;}
                 if(j.Operation=="trees" && !j.CollectingDrops && !t.IsWildTree) {j.Phase="SELECT";return;}
                 bool clearingTree=FarmActionCanClearTree(j,t);
-                if(j.Operation!="restore_soil" && j.Action!="Hoe" && j.Action!="Watering Can" && !clearingTree && (j.Operation!="trees" || j.CollectingDrops && !t.IsWildTree)) {
+                if(j.Operation!="remove_dead_crops" && j.Operation!="restore_soil" && j.Action!="Hoe" && j.Action!="Watering Can" && !clearingTree && (j.Operation!="trees" || j.CollectingDrops && !t.IsWildTree)) {
                     if(t.ClearTool=="" || t.HasCrop || t.Hoed) {j.Phase="SELECT";return;}
                     string chosen=ChooseClearingTool(j,t,j.Stand);
                     if(chosen=="") {j.Phase="APPROACH";return;}
                     if(chosen!=j.Action) _monitor.Log($"[FARM TOOL] ({t.X},{t.Y}) {j.Action} -> {chosen}",LogLevel.Info);
                     j.Action=chosen;
                 }
-                if(j.Operation!="restore_soil" && j.Action!="Hoe" && j.Action!="Watering Can" && !clearingTree && (j.Operation!="trees" || j.CollectingDrops && !t.IsWildTree) && !player.Items.Any(item=>item==null)) {FinishFarm(j,"PAUSED","INVENTORY_FULL");return;}
+                if(j.Operation!="remove_dead_crops" && j.Operation!="restore_soil" && j.Action!="Hoe" && j.Action!="Watering Can" && !clearingTree && (j.Operation!="trees" || j.CollectingDrops && !t.IsWildTree) && !player.Items.Any(item=>item==null)) {FinishFarm(j,"PAUSED","INVENTORY_FULL");return;}
                 int slot=FarmToolSlot(j.Action);if(slot<0) {FinishFarm(j,"BLOCKED","MISSING_TOOL: "+j.Action);return;}
                 if(player.Stamina < j.MinimumEnergy+4) {FinishFarm(j,"PAUSED","LOW_ENERGY");return;}
                 player.CurrentToolIndex=slot;
@@ -739,7 +747,18 @@ public partial class CommandExecutor
                             ? Game1.options.useToolButton[0].ToSButton()
                             : SButton.MouseLeft;
                         _helper.Input.Press(useButton);
-                        _monitor.Log($"[FARM NORMAL INPUT] {player.CurrentTool.Name} pressed for operation=restore_soil at tile=({j.Target.X},{j.Target.Y})",LogLevel.Info);
+                        _monitor.Log($"[FARM NORMAL INPUT] {player.CurrentTool.Name} pressed for operation={j.Operation} at tile=({j.Target.X},{j.Target.Y})",LogLevel.Info);
+                    } else if(j.Operation=="remove_dead_crops") {
+                        if(Game1.currentLocation.terrainFeatures.TryGetValue(targetVector,out var deadFeature)
+                            && deadFeature is HoeDirt deadSoil && deadSoil.crop?.dead.Value==true) {
+                            Crop deadCrop=deadSoil.crop;
+                            bool removeTerrain=deadSoil.performToolAction(player.CurrentTool,0,targetVector);
+                            bool removed=!ReferenceEquals(deadSoil.crop,deadCrop) || deadSoil.crop==null;
+                            _monitor.Log($"[FARM DEAD CROP] Scythe applied only to tile=({j.Target.X},{j.Target.Y}), removed={removed}, removeTerrain={removeTerrain}",LogLevel.Info);
+                            j.SawBusy=true;
+                        } else {
+                            FinishFarm(j,"BLOCKED","DEAD_CROP_CHANGED");return;
+                        }
                     } else {
                         player.CurrentTool.DoFunction(Game1.currentLocation,j.Target.X*64+32,j.Target.Y*64+32,0,player);
                         _monitor.Log($"[FARM DIRECT] {player.CurrentTool.Name} invoked at world=({j.Target.X*64+32},{j.Target.Y*64+32}) tile=({j.Target.X},{j.Target.Y})",LogLevel.Info);

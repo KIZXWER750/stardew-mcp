@@ -866,6 +866,10 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("water", p)
 		})
+	removeDeadCropsTool := copilot.DefineTool("remove_dead_crops", "Remove only observed dead crops from an explicit Farm rectangle by applying the Scythe to each exact crop tile. Living crops, empty HoeDirt, objects and facilities are preserved. Verifies each dead crop disappeared. Use this before planting or watering an area containing dead=true crop tiles.",
+		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
+			return a.runFarmArea("remove_dead_crops", p)
+		})
 	clearAreaTool := copilot.DefineTool("clear_area", "Remove supported weeds, grass, stones and twigs only; preserve crops, existing soil and facilities. Never till. Returns terminal structured task result; executes all movement internally.",
 		func(p PlotParams, inv copilot.ToolInvocation) (string, error) {
 			return a.runFarmArea("clear", p)
@@ -1005,7 +1009,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 			"assess_daily_status", "find_food_options", "find_recovery_options", "consume_food", "find_home_route", "return_home", "schedule_bedtime", "sleep_until_morning", "manage_daily_life",
 			"get_shop_status", "inspect_sellable_crops", "sell_crop_stack", "inspect_closed_storage", "inspect_storage", "open_storage", "take_storage_item", "store_inventory_item", "stack_inventory_to_storage", "organize_storage", "close_storage",
 			"find_shop_route", "enter_pierre_shop", "open_pierre_shop", "inspect_shop", "buy_shop_item", "close_shop", "use_route_exit",
-			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "clear_area", "till_plot", "restore_tilled_soil", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing", "collect_loose_items",
+			"analyze_farm_work", "find_water_sources", "refill_watering_can", "inspect_area", "find_plot_candidates", "prepare_plot", "water_plot", "remove_dead_crops", "clear_area", "till_plot", "restore_tilled_soil", "plant_plot", "harvest_plot", "remove_wild_trees", "move_with_clearing", "collect_loose_items",
 			"move_to", "get_surroundings", "interact", "use_tool",
 			"use_tool_repeat", "face_direction", "select_item", "switch_tool",
 			"eat_item", "enter_door", "exit_house", "find_best_target", "clear_target",
@@ -1016,7 +1020,7 @@ Surrounding area is auto-cleared so pattern is visible.`,
 		},
 		Tools: []copilot.Tool{
 			shopStatusTool, saleInspectTool, saleTool, storageInspectClosedTool, storageInspectTool, storageOpenTool, storageTakeTool, storagePutTool, storageStackExistingTool, storageOrganizeTool, storageCloseTool,
-			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, clearAreaTool, tillPlotTool, restoreTilledSoilTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
+			shopRouteTool, enterPierreShopTool, openPierreShopTool, shopInspectTool, shopBuyTool, shopCloseTool, shopExitTool, analyzeFarmTool, waterSourcesTool, refillCanTool, inspectAreaTool, findPlotCandidatesTool, preparePlotTool, waterPlotTool, removeDeadCropsTool, clearAreaTool, tillPlotTool, restoreTilledSoilTool, plantPlotTool, harvestPlotTool, removeWildTreesTool, moveWithClearingTool, collectLooseItemsTool,
 			economicTools[0], economicTools[1], economicTools[2], economicTools[3], economicTools[4], economicTools[5], economicTools[6],
 			// Standard gameplay tools
 			moveToTool, getSurroundingsTool, interactTool, useToolTool,

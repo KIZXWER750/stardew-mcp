@@ -115,7 +115,7 @@ public partial class CommandExecutor
         if(j.SeedItemId.StartsWith("(O)")) j.SeedItemId=j.SeedItemId.Substring(3);
         string filter=S("target_filter","ALL_HOED_SOIL"),policy=S("existing_crop_policy","PRESERVE_AND_REPORT");
         if(policy=="") policy="PRESERVE_AND_REPORT";
-        if(!new[]{"clear","till","restore_soil","prepare","plant","water","harvest"}.Contains(j.Operation)) throw new InvalidOperationException("Unsupported analysis operation");
+        if(!new[]{"clear","till","restore_soil","prepare","plant","water","harvest","remove_dead_crops"}.Contains(j.Operation)) throw new InvalidOperationException("Unsupported analysis operation");
         if(j.Operation=="plant" && j.SeedItemId=="") throw new InvalidOperationException("seed_item_id required");
         if(!new[]{"ALL_HOED_SOIL","CROPS_ONLY"}.Contains(filter) || !new[]{"PRESERVE_AND_REPORT","REQUIRE_SAME_CROP"}.Contains(policy)) throw new InvalidOperationException("Invalid analysis filter/policy");
         var tiles=new List<object>();var needed=new HashSet<string>();
@@ -125,16 +125,19 @@ public partial class CommandExecutor
             var t=ReadFarmTile(x,y);AddFarmAccess(t,cache,true);
             string code="READY";
             bool skip=j.Operation=="water" && filter=="CROPS_ONLY" && !t.HasCrop
-                || j.Operation=="plant" && policy=="PRESERVE_AND_REPORT" && t.HasCrop
+                || j.Operation=="plant" && policy=="PRESERVE_AND_REPORT" && t.HasCrop && !t.Dead
                 || j.Operation=="harvest" && !t.ReadyForHarvest
+                || j.Operation=="remove_dead_crops" && !t.Dead
                 || j.Operation=="restore_soil" && (t.HasCrop || t.Obstacle!="");
             if(skip) {code="EXCLUDED";excluded++;}
+            else if((j.Operation=="water" || j.Operation=="plant") && t.Dead) {code="DEAD_CROP_REQUIRES_REMOVAL";blocked++;}
             else if(Satisfied(j,t)) {code="ALREADY_SATISFIED";satisfied++;}
             else {
                 if(t.Obstacle!="" && (t.ClearTool=="" || t.HasCrop || t.Hoed)) code="PROTECTED";
                 else if(t.Obstacle!="" && j.Operation!="clear" && j.Operation!="prepare") code="CLEARING_REQUIRED";
                 else if((j.Operation=="till" || j.Operation=="prepare") && !t.Diggable) code="NOT_DIGGABLE";
                 else if((j.Operation=="water" || j.Operation=="plant") && !t.Hoed) code="NOT_HOED";
+                else if(j.Operation=="plant" && t.Dead) code="DEAD_CROP_REQUIRES_REMOVAL";
                 else if(j.Operation=="plant" && t.HasCrop) code="EXISTING_CROP_CONFLICT";
                 else if(t.ReachableApproachCount==0) code="NO_REACHABLE_APPROACH";
                 if(code=="READY") {
@@ -150,6 +153,7 @@ public partial class CommandExecutor
                     if(j.Operation=="water") {needed.Add("Watering Can");water++;}
                     if(j.Operation=="plant") seeds++;
                     if(j.Operation=="harvest" && t.HarvestMethod=="Scythe") needed.Add("Scythe");
+                    if(j.Operation=="remove_dead_crops") needed.Add("Scythe");
                     if(j.Operation=="harvest" && t.HarvestMethod!="Grab" && t.HarvestMethod!="Scythe") {code="UNSUPPORTED_HARVEST_METHOD";feasible--;blocked++;}
                 } else blocked++;
             }

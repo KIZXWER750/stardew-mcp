@@ -1,3 +1,4 @@
+using System;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -43,6 +44,19 @@ public class ModEntry : Mod
                 var panel=new Microsoft.Xna.Framework.Rectangle(12,88,620,132);
                 e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.82f);
                 e.SpriteBatch.DrawString(Game1.smallFont,display,new Microsoft.Xna.Framework.Vector2(panel.X+14,panel.Y+12),Microsoft.Xna.Framework.Color.White);
+            }
+            var planRows=_commandExecutor?.GetLongTermGoalPlanHudRows();
+            if(planRows!=null && planRows.Count>0) {
+                int panelWidth=Math.Min(650,Game1.uiViewport.Width-24);
+                int panelHeight=24+planRows.Count*30;
+                int panelY=_agentUi.Busy?230:88;
+                var panel=new Microsoft.Xna.Framework.Rectangle(12,panelY,panelWidth,panelHeight);
+                e.SpriteBatch.Draw(Game1.fadeToBlackRect,panel,Microsoft.Xna.Framework.Color.Black*0.68f);
+                for(int i=0;i<planRows.Count;i++) {
+                    var row=planRows[i];
+                    var color=row.Completed?Microsoft.Xna.Framework.Color.Yellow:row.Current?Microsoft.Xna.Framework.Color.White:Microsoft.Xna.Framework.Color.White*0.82f;
+                    e.SpriteBatch.DrawString(Game1.smallFont,row.Text,new Microsoft.Xna.Framework.Vector2(panel.X+14,panel.Y+12+i*30),color);
+                }
             }
             string goalText=_commandExecutor?.GetLongTermGoalHudText()??"";
             if(goalText!="") {
