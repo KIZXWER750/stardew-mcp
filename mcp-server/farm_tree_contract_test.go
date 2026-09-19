@@ -22,6 +22,8 @@ func TestTreeDropGameContractIsPackaged(t *testing.T) {
 	for _, required := range []string{
 		"t.IsTreeStump?5:t.GrowthStage>=5?10:4",
 		"BeginTreeDropCollection(j,now)",
+		"item.Tile.GrowthStage>=5 && !item.Tile.IsTreeStump?0:item.Tile.IsTreeStump?1:2",
+		"j.Targets=rankedTrees.Take(j.MaxTrees)",
 	} {
 		if !strings.Contains(string(work), required) {
 			t.Fatalf("FarmWork missing tree contract %q", required)

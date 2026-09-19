@@ -359,11 +359,19 @@ public partial class CommandExecutor
             else j.Targets.Add(new Point(x,y));
         }
         if(j.Operation=="trees") {
-            j.Targets=treeTargets.OrderBy(p=>Math.Abs(p.X-Game1.player.Tile.X)+Math.Abs(p.Y-Game1.player.Tile.Y))
-                .Take(j.MaxTrees).ToList();
+            // A distance-only order could fill max_trees with nearby seeds and
+            // saplings while leaving the mature trees the user intended to cut.
+            // Prefer mature trees, then existing stumps, and use young trees
+            // only for the remaining requested capacity. Distance breaks ties.
+            var rankedTrees=treeTargets.Select(point=>new { Point=point,Tile=ReadFarmTile(point.X,point.Y) })
+                .OrderBy(item=>item.Tile.GrowthStage>=5 && !item.Tile.IsTreeStump?0:item.Tile.IsTreeStump?1:2)
+                .ThenBy(item=>Math.Abs(item.Point.X-Game1.player.Tile.X)+Math.Abs(item.Point.Y-Game1.player.Tile.Y))
+                .ToList();
+            j.Targets=rankedTrees.Take(j.MaxTrees).Select(item=>item.Point).ToList();
             j.TreeOrigins=j.Targets.ToList();
             j.TreeInventoryBefore=SnapshotFarmInventory();
-            foreach(var skipped in treeTargets.Skip(j.MaxTrees)) j.ExcludedTiles.Add($"({skipped.X},{skipped.Y}): max_trees limit");
+            foreach(var skipped in rankedTrees.Skip(j.MaxTrees))
+                j.ExcludedTiles.Add($"({skipped.Point.X},{skipped.Point.Y}): max_trees limit");
         }
         if(j.Operation=="refill") {
             if(j.Width!=1 || j.Height!=1) throw new InvalidOperationException("Refill requires one observed source tile");
