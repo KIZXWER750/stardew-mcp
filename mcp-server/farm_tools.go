@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -62,6 +63,7 @@ Only resume a NO_WATER pause after a verified refill. LOW_ENERGY and TIME_LIMIT 
 only when the user's goal authorized the corresponding recovery; all other pauses stop. Respect explicit prohibitions.
 Farm-area functions do not buy seeds, eat, go home, or sleep. Use manage_daily_life between long stages and after
 recoverable PAUSED results when the user's goal authorizes food, returning home, or ending the day.
+If a Farm-area function returns PREREQUISITE_REQUIRED for WRONG_LOCATION, move to the required location and retry it. No farm action was recorded or attempted, so this location-only retry is safe.
 `
 
 type PlotParams struct {
@@ -304,6 +306,9 @@ func (a *StardewAgent) runFarmArea(op string, p PlotParams) (string, error) {
 	if op == "plant" && p.SeedItemID == "" {
 		return "TASK_BLOCKED: seed_item_id is required", nil
 	}
+	if preflight, stop := farmLocationPreflight(p, gameClient.GetState()); stop {
+		return preflight, nil
+	}
 	a.toolMutex.Lock()
 	defer a.toolMutex.Unlock()
 	key := farmKey(op, p)
@@ -384,4 +389,21 @@ func (a *StardewAgent) runFarmArea(op string, p PlotParams) (string, error) {
 			return "TASK_BLOCKED: " + e.Error(), nil
 		}
 	}
+}
+
+func farmLocationPreflight(p PlotParams, state *GameState) (string, bool) {
+	if state == nil {
+		return `{"status":"PREREQUISITE_REQUIRED","reason":"GAME_STATE_UNAVAILABLE","actionMayHaveExecuted":false,"nextAction":"Wait for a fresh game-state observation, then retry."}`, true
+	}
+	required := strings.TrimSpace(p.Location)
+	if required != "" && state.Player.Location != required {
+		body, _ := json.Marshal(map[string]interface{}{
+			"status": "PREREQUISITE_REQUIRED", "reason": "WRONG_LOCATION",
+			"currentLocation": state.Player.Location, "requiredLocation": required,
+			"actionMayHaveExecuted": false,
+			"nextAction":            "Move to the required location, verify it from fresh state, then retry the identical farm function. This preflight did not enter the idempotency ledger.",
+		})
+		return string(body), true
+	}
+	return "", false
 }

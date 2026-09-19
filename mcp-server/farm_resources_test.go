@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,17 @@ func TestAnalysisReadOnlyRequestValidation(t *testing.T) {
 	p.Operation = "cheat"
 	if _, e := p.valuesForAnalysis(); e == nil {
 		t.Fatal("invalid analysis operation")
+	}
+}
+
+func TestWrongLocationPreflightDoesNotCreateFarmAttempt(t *testing.T) {
+	p := PlotParams{Location: "Farm", Width: 2, Height: 2}
+	body, stop := farmLocationPreflight(p, &GameState{Player: PlayerState{Location: "FarmHouse"}})
+	if !stop || !strings.Contains(body, `"reason":"WRONG_LOCATION"`) || !strings.Contains(body, `"actionMayHaveExecuted":false`) {
+		t.Fatal(body, stop)
+	}
+	if body, stop = farmLocationPreflight(p, &GameState{Player: PlayerState{Location: "Farm"}}); stop || body != "" {
+		t.Fatal("valid Farm preflight rejected", body, stop)
 	}
 }
 

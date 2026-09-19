@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Locations;
@@ -16,6 +17,9 @@ public partial class CommandExecutor
     private bool morningGateObserved;
     private DateTime morningControllableAt;
     private int morningTransitionWaits;
+    private Vector2? morningStartPosition;
+    private int morningStartTime;
+    private bool morningMovementVerified;
     public void CancelSleepTransition() {sleepAnswered=false;sleepStartDate=null;}
 
     public void ProcessOvernightCommands()
@@ -31,7 +35,7 @@ public partial class CommandExecutor
     // allowlisted transition helper runs then, never general game commands.
     public void UpdateSleepTransition()
     {
-        if(!sleepAnswered || sleepStartDate==null || sleepTransitionError!="") return;
+        if(!sleepAnswered || sleepStartDate==null || sleepTransitionError!="" || morningReady) return;
         if((DateTime.UtcNow-sleepStarted).TotalSeconds>180) {
             sleepTransitionError="OVERNIGHT_TIMEOUT: overnight transition not verified";return;
         }
@@ -73,9 +77,14 @@ public partial class CommandExecutor
                 morningGateObserved=true;
                 _monitor.Log($"[MORNING GATE] date={SleepDate()}, time={Game1.timeOfDay}, newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}",LogLevel.Info);
             }
-            if(Game1.player.CanMove && Game1.player.hasMoved && timePasses) {
+            if(morningStartPosition.HasValue && !morningMovementVerified
+                && Vector2.DistanceSquared(Game1.player.Position,morningStartPosition.Value)>=4f) {
+                morningMovementVerified=true;
+                _monitor.Log($"[MORNING MOVEMENT VERIFIED] start=({morningStartPosition.Value.X:0},{morningStartPosition.Value.Y:0}), current=({Game1.player.Position.X:0},{Game1.player.Position.Y:0})",LogLevel.Info);
+            }
+            if(Game1.player.CanMove && morningMovementVerified && timePasses && Game1.timeOfDay>morningStartTime) {
                 morningReady=true;
-                _monitor.Log($"[MORNING VERIFIED] attempts={morningInputAttempts}, newDay={Game1.newDay}, time={Game1.timeOfDay}, tile=({(int)Game1.player.Tile.X},{(int)Game1.player.Tile.Y})",LogLevel.Info);
+                _monitor.Log($"[MORNING VERIFIED] attempts={morningInputAttempts}, newDay={Game1.newDay}, time={Game1.timeOfDay}, tile=({(int)Game1.player.Tile.X},{(int)Game1.player.Tile.Y}), positionChanged={morningMovementVerified}",LogLevel.Info);
                 return;
             }
             // DayStarted fires before the wake-up fade has necessarily restored
@@ -90,11 +99,17 @@ public partial class CommandExecutor
             }
             if(morningControllableAt==default) {
                 morningControllableAt=DateTime.UtcNow;
+                morningStartPosition=Game1.player.Position;
+                morningStartTime=Game1.timeOfDay;
                 _monitor.Log($"[MORNING CONTROLLABLE] date={SleepDate()}, time={Game1.timeOfDay}; sending normal movement input to start the clock.",LogLevel.Info);
             }
             if((DateTime.UtcNow-morningControllableAt).TotalSeconds>=30) {
                 sleepTransitionError=$"MORNING_INPUT_NOT_VERIFIED: controllable for 30 seconds; newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}, attempts={morningInputAttempts}";
                 _monitor.Log(sleepTransitionError,LogLevel.Warn);return;
+            }
+            if(morningMovementVerified) {
+                nextSleepInput=DateTime.UtcNow.AddMilliseconds(250);
+                return;
             }
             // Normal configured movement input releases the game's morning input
             // gate once the wake-up transition has restored player control. Cycle

@@ -394,7 +394,10 @@ public partial class CommandExecutor
         if (step == null || step.DayIndex > CurrentDayIndex() || step.DayIndex == CurrentDayIndex() && step.NotBeforeTime > 0 && Game1.timeOfDay < step.NotBeforeTime
             || Game1.timeOfDay >= goal.Plan.LatestWorkTime) return "";
         if (goal.Plan.LastDispatchDayIndex == CurrentDayIndex() && goal.Plan.LastDispatchStepId == step.Id) return "";
-        return "CONTINUE PERSISTENT GOAL PLAN\nGoal ID: " + goal.Id + "\nPlan revision: " + goal.Plan.Revision
+        string prerequisite = IsFarmStep(step.Action) && Game1.currentLocation is FarmHouse
+            ? "\nThe due step is a Farm action and the player is inside FarmHouse. Before leasing the step, call exit_house exactly once and verify the current location is Farm. Only then call continue_goal_plan_execution."
+            : "";
+        return "CONTINUE PERSISTENT GOAL PLAN\nGoal ID: " + goal.Id + "\nPlan revision: " + goal.Plan.Revision + prerequisite
             + "\nCall continue_goal_plan_execution for this exact goal. Execute only leased due steps, report each verified result, and continue until WAITING, BLOCKED, REPLAN_REQUIRED or GOAL_COMPLETED.";
     }
 
