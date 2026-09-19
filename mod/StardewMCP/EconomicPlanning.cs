@@ -47,13 +47,22 @@ public partial class CommandExecutor
 
     private IDictionary LoadGameDictionary(string assetName, string typeName)
     {
-        Type valueType = typeof(Game1).Assembly.GetType(typeName)
-            ?? throw new InvalidOperationException($"Installed game data type unavailable: {typeName}");
+        Type valueType = ResolveGameDataType(typeName);
         MethodInfo load = Game1.content.GetType().GetMethods().First(p => p.Name == "Load" && p.IsGenericMethodDefinition
             && p.GetParameters().Length == 1 && p.GetParameters()[0].ParameterType == typeof(string));
         Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
         return load.MakeGenericMethod(dictionaryType).Invoke(Game1.content, new object[] { assetName }) as IDictionary
             ?? throw new InvalidOperationException($"Installed game data unavailable: {assetName}");
+    }
+
+    private static Type ResolveGameDataType(string typeName)
+    {
+        Type? resolved = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(p => p.GetType(typeName, false, false)).FirstOrDefault(p => p != null);
+        if (resolved != null) return resolved;
+        try { resolved = Assembly.Load(new AssemblyName("StardewValley.GameData")).GetType(typeName, false, false); }
+        catch { }
+        return resolved ?? throw new InvalidOperationException($"Installed game data type unavailable: {typeName}");
     }
 
     private Dictionary<string, int> PierreSeedPrices()
@@ -122,7 +131,7 @@ public partial class CommandExecutor
     {
         string[] tools = { "Hoe", "Pickaxe", "Axe", "Watering Can", "Scythe" };
         var toolState = tools.Select(p => new { name = p, available = FarmToolSlot(p) >= 0 }).ToList();
-        return FarmReply(command, new { status = "OBSERVED", version = "1.19.2", toolState,
+        return FarmReply(command, new { status = "OBSERVED", version = "1.19.3", toolState,
             capabilities = new object[] {
                 new {id="goal.money.persistence",supported=true,mode="verified_state"},
                 new {id="economy.observe",supported=true,mode="read_only"},

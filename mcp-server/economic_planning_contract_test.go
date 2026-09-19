@@ -26,4 +26,13 @@ func TestPhaseThreePlanningContract(t *testing.T) {
 			t.Fatalf("missing persistent planner contract %q", required)
 		}
 	}
+	loader, err := os.ReadFile("../mod/StardewMCP/EconomicPlanning.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"ResolveGameDataType", "AppDomain.CurrentDomain.GetAssemblies", "StardewValley.GameData"} {
+		if !strings.Contains(string(loader), required) {
+			t.Fatalf("missing installed game-data loader contract %q", required)
+		}
+	}
 }

@@ -14,7 +14,7 @@ The execution response leases exactly one step. Execute only that step and its s
 Never report completed from intent, an input attempt, or prose. Use completed only after the underlying tool returned a verified success. Use paused for time, energy, closed-shop, empty-can, or another recoverable condition. Use blocked only after safe recovery inside the authorized scope is exhausted.
 For select_farm_plot, call find_plot_candidates using the exact requested dimensions, choose only a returned reachable candidate, and pass it to bind_goal_plan_plot. That plot remains fixed across days and restarts.
 Keep calling the returned next directive in the same run until it says WAITING, BLOCKED, REPLAN_REQUIRED, or GOAL_COMPLETED. On REPLAN_REQUIRED call refresh_goal_plan and start execution again if the goal remains active.
-WAITING means stop this run. The in-game host automatically resumes a due persisted step on a later day. Do not invent sleep authorization or advance time merely to reach a future step.
+WAITING means today's checkpoint succeeded and the long-term goal remains active. Stop this run with a final line beginning GOAL WAITING: and briefly name the next persisted day/time step. Never call it TASK_BLOCKED. The in-game host automatically resumes a due persisted step on a later day. Do not invent sleep authorization or advance time merely to reach a future step.
 Plan execution does not broaden authorization. Preserve reserve money, protected items, fixed plot bounds, latest work time, and normal gameplay verification. F7 pauses the persistent goal and its plan.
 `
 

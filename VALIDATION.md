@@ -1,4 +1,18 @@
-# 1.19.2 검증 기록 — 2026-09-20
+# 1.19.3 검증 기록 — 2026-09-20
+
+1.19.3은 실제 인게임 로그에서 확인된 `Installed game data type unavailable` 계획 생성 실패를 수정합니다. Stardew Valley 1.6에서 별도 어셈블리로 로드되는 `CropData`와 `ShopData`를 전체 AppDomain 및 `StardewValley.GameData` 어셈블리에서 해석합니다. 미래 단계는 `TASK_BLOCKED` 대신 영속 `GOAL WAITING` 체크포인트로 종료하며, 계획기 실패 뒤 수동 농사로 우회하지 않습니다.
+
+## 1.19.3 검증 결과
+
+- `Verify.ps1 -GamePath "E:\SteamLibrary\steamapps\common\Stardew Valley"` 전체 실행 성공.
+- `gofmt -l`, `go test ./...`, `go vet ./...` 통과. 등록된 실제 AI 도구 84개를 확인했습니다.
+- Windows amd64 Go 서버 빌드 통과. SHA256: `51B64B9E058A17B22254FABC4231E4051A806F0F49410EE67385A0EEA66DBC57`.
+- 실제 설치된 Stardew Valley/SMAPI 참조 C# 빌드 성공: 오류 0개, 기존 경고 8개.
+- C# 회귀 검사 51개와 Go 계약 검사가 통과했습니다. Go 검사는 `GOAL WAITING`의 정확한 판별과 GameData 어셈블리 탐색 계약을 포함합니다.
+- 설치 게임의 `StardewValley.GameData.dll`에서 `StardewValley.GameData.Crops.CropData`와 `StardewValley.GameData.Shops.ShopData` 타입이 실제 존재하는 것을 확인했습니다.
+- 실제 게임에서는 기존 작물 목표가 `build_goal_plan`을 통과하고, 오늘 물주기 뒤 다음 날 단계가 저장·자동 재개되는지 확인해야 합니다.
+
+## 1.19.2 검증 기록
 
 1.19.2는 인벤토리 판매 후보가 없을 때 농장의 기존 작물을 별도 수익 전략으로 계산합니다. 작물 위치, 수확물 ID, 남은 성장일과 예상 판매액을 관측하고 고정 구역의 물주기·수확·판매 계획을 만듭니다. `tend_existing_crops`는 이미 심어진 작물 관리만 허용하므로 씨앗 구매와 새 경작·파종 금지를 유지할 수 있습니다.
 

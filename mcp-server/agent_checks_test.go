@@ -101,6 +101,17 @@ func TestExactCompletion(t *testing.T) {
 	}
 }
 
+func TestGoalWaitingMarker(t *testing.T) {
+	if !isGoalWaiting("오늘 물주기를 마쳤습니다.\nGOAL WAITING: 봄 25일 물주기") {
+		t.Fatal("persistent wait marker rejected")
+	}
+	for _, value := range []string{"TASK_BLOCKED: 기다려야 함", "GOAL COMPLETE", "아직 기다리는 중"} {
+		if isGoalWaiting(value) {
+			t.Fatalf("false waiting marker: %s", value)
+		}
+	}
+}
+
 func TestWaterCompletion(t *testing.T) {
 	s := &GameState{}
 	s.Player.Location = "Farm"

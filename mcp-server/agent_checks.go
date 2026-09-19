@@ -16,6 +16,15 @@ func isCompletion(text string) bool {
 	return strings.TrimSpace(lines[len(lines)-1]) == "GOAL COMPLETE"
 }
 
+func isGoalWaiting(text string) bool {
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(line)), "GOAL WAITING:") {
+			return true
+		}
+	}
+	return false
+}
+
 // Crop symbols do not encode collision. Require positive terrain evidence.
 func observedCropWalkable(state *GameState, x, y int) bool {
 	if state == nil {

@@ -1311,6 +1311,10 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 				log.Printf("[TASK BLOCKED] Stopping without claiming completion.")
 				return
 			}
+			if isGoalWaiting(thought) {
+				log.Printf("[GOAL WAITING] Persisted plan checkpoint reached; a later due step will be resumed by the in-game host.")
+				return
+			}
 			if isCompletion(thought) {
 				log.Printf("[AGENT LOOP] Goal completion detected!")
 				if verifyPlot {

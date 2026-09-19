@@ -103,7 +103,7 @@ func runIngameHost() {
 					emitUI("done", runID, err.Error())
 					continue
 				}
-				goal := r.Goal + "\nUse normal gameplay only. Never enable cheats. In your final answer, report the requested verified information concisely so it can be shown in the in-game chat. If a step is blocked, try safe prerequisite recovery within the requested scope first. If still unresolved, begin TASK_BLOCKED: with the reason. If complete, put GOAL COMPLETE on the last line. Stop after this goal."
+				goal := r.Goal + "\nUse normal gameplay only. Never enable cheats. In your final answer, report the requested verified information concisely so it can be shown in the in-game chat. A persisted future day, future time, or crop-growth step is GOAL WAITING, not TASK_BLOCKED; leave it saved for automatic resume. If a step is blocked, try safe prerequisite recovery within the requested scope first. If still unresolved, begin TASK_BLOCKED: with the reason. If complete, put GOAL COMPLETE on the last line. Stop after this goal."
 				cmd := exec.Command(exe, "-goal", goal)
 				cmd.Env = append(os.Environ(), "STARDEW_UI_RUN="+runID)
 				out, e1 := cmd.StdoutPipe()

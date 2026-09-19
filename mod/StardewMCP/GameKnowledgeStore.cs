@@ -152,7 +152,7 @@ public partial class CommandExecutor
         var parts = new List<string>();
         try
         {
-            Type? shopDataType = typeof(Game1).Assembly.GetType("StardewValley.GameData.Shops.ShopData");
+            Type? shopDataType = ResolveGameDataType("StardewValley.GameData.Shops.ShopData");
             MethodInfo? load = Game1.content.GetType().GetMethods().FirstOrDefault(p => p.Name == "Load" && p.IsGenericMethodDefinition
                 && p.GetParameters().Length == 1 && p.GetParameters()[0].ParameterType == typeof(string));
             if (shopDataType == null || load == null) return parts;
@@ -252,7 +252,7 @@ public partial class CommandExecutor
     {
         try
         {
-            Type? shopDataType = typeof(Game1).Assembly.GetType("StardewValley.GameData.Shops.ShopData");
+            Type? shopDataType = ResolveGameDataType("StardewValley.GameData.Shops.ShopData");
             MethodInfo? load = Game1.content.GetType().GetMethods().FirstOrDefault(p => p.Name == "Load" && p.IsGenericMethodDefinition
                 && p.GetParameters().Length == 1 && p.GetParameters()[0].ParameterType == typeof(string));
             if (shopDataType == null || load == null) throw new InvalidOperationException("ShopData loader unavailable");
