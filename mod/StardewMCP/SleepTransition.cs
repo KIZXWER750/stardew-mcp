@@ -14,6 +14,8 @@ public partial class CommandExecutor
     private bool morningReady;
     private int morningInputAttempts;
     private bool morningGateObserved;
+    private DateTime morningControllableAt;
+    private int morningTransitionWaits;
     public void CancelSleepTransition() {sleepAnswered=false;sleepStartDate=null;}
 
     public void ProcessOvernightCommands()
@@ -76,14 +78,28 @@ public partial class CommandExecutor
                 _monitor.Log($"[MORNING VERIFIED] attempts={morningInputAttempts}, newDay={Game1.newDay}, time={Game1.timeOfDay}, tile=({(int)Game1.player.Tile.X},{(int)Game1.player.Tile.Y})",LogLevel.Info);
                 return;
             }
-            if(morningInputAttempts>=8) {
-                sleepTransitionError=$"MORNING_INPUT_NOT_VERIFIED: newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}";
+            // DayStarted fires before the wake-up fade has necessarily restored
+            // player control. Inputs sent while CanMove is false are discarded by
+            // the game, so don't consume the morning-input retry budget yet.
+            if(!Game1.player.CanMove) {
+                morningTransitionWaits++;
+                if(morningTransitionWaits==1 || morningTransitionWaits%10==0)
+                    _monitor.Log($"[MORNING TRANSITION WAIT] waits={morningTransitionWaits}, newDay={Game1.newDay}, fade={Game1.fadeToBlackAlpha:0.00}, globalFade={Game1.globalFade}, freezeControls={Game1.freezeControls}",LogLevel.Trace);
+                nextSleepInput=DateTime.UtcNow.AddMilliseconds(500);
+                return;
+            }
+            if(morningControllableAt==default) {
+                morningControllableAt=DateTime.UtcNow;
+                _monitor.Log($"[MORNING CONTROLLABLE] date={SleepDate()}, time={Game1.timeOfDay}; sending normal movement input to start the clock.",LogLevel.Info);
+            }
+            if((DateTime.UtcNow-morningControllableAt).TotalSeconds>=30) {
+                sleepTransitionError=$"MORNING_INPUT_NOT_VERIFIED: controllable for 30 seconds; newDay={Game1.newDay}, canMove={Game1.player.CanMove}, hasMoved={Game1.player.hasMoved}, shouldTimePass={timePasses}, attempts={morningInputAttempts}";
                 _monitor.Log(sleepTransitionError,LogLevel.Warn);return;
             }
             // Normal configured movement input releases the game's morning input
-            // gate. Game1.newDay is expected to still be true at this gate, so it
-            // must not suppress the input. Cycle directions so a wall beside the
-            // bed cannot prevent all real movement. Do not mutate game flags/time.
+            // gate once the wake-up transition has restored player control. Cycle
+            // directions so a wall beside the bed cannot prevent all real movement.
+            // Do not mutate game flags, time, or CanMove directly.
             var configured=(morningInputAttempts%4) switch {
                 0=>Game1.options.moveLeftButton,
                 1=>Game1.options.moveRightButton,

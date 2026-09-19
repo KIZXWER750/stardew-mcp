@@ -45,10 +45,11 @@ func TestMorningGateReceivesNormalInputWhileNewDayIsTrue(t *testing.T) {
 	}
 	transition := string(transitionBytes)
 	for _, required := range []string{
-		"[MORNING GATE]", "[MORNING INPUT]", "[MORNING VERIFIED]",
+		"[MORNING GATE]", "[MORNING TRANSITION WAIT]", "[MORNING CONTROLLABLE]", "[MORNING INPUT]", "[MORNING VERIFIED]",
 		"Game1.player.hasMoved && timePasses", "_helper.Input.Press(morningButton)",
 		"Game1.options.moveLeftButton", "Game1.options.moveRightButton",
-		"Game1.options.moveDownButton", "Game1.options.moveUpButton",
+		"Game1.options.moveDownButton", "Game1.options.moveUpButton", "if(!Game1.player.CanMove)",
+		"morningControllableAt", "TotalSeconds>=30",
 	} {
 		if !strings.Contains(transition, required) {
 			t.Fatal("morning input contract missing: " + required)
@@ -56,5 +57,8 @@ func TestMorningGateReceivesNormalInputWhileNewDayIsTrue(t *testing.T) {
 	}
 	if strings.Contains(transition, "Game1.globalFade || Game1.newDay") {
 		t.Fatal("newDay still blocks the input required to release the 6 AM gate")
+	}
+	if strings.Contains(transition, "morningInputAttempts>=8") {
+		t.Fatal("morning input still fails after the four-second pre-control retry window")
 	}
 }

@@ -1,4 +1,14 @@
-# 1.19.3 검증 기록 — 2026-09-20
+# 1.19.4 검증 기록 — 2026-09-20
+
+1.19.4는 다음 날 오전 6시의 기상 화면 전환이 끝나기 전에 0.5초 간격의 입력 8회를 모두 소진하고 `MORNING_INPUT_NOT_VERIFIED`를 반환하던 문제를 수정합니다. 날짜 변경 뒤 `CanMove=false`인 동안은 기다리고, 조작 가능 상태가 된 뒤 정상 이동 입력으로 `hasMoved`와 `shouldTimePass()`를 확인합니다.
+
+## 1.19.4 검증 결과
+
+- Go 수면 계약 검사와 전체 테스트를 통과했습니다.
+- 실제 설치 게임 참조 C# 빌드 성공: 오류 0개, 기존 경고 8개.
+- 인게임에서는 자동 수면 후 `[MORNING TRANSITION WAIT]`, `[MORNING CONTROLLABLE]`, `[MORNING INPUT]`, `[MORNING VERIFIED]` 순서와 오전 6시 이후 시간 진행을 확인해야 합니다.
+
+## 1.19.3 검증 기록
 
 1.19.3은 실제 인게임 로그에서 확인된 `Installed game data type unavailable` 계획 생성 실패를 수정합니다. Stardew Valley 1.6에서 별도 어셈블리로 로드되는 `CropData`와 `ShopData`를 전체 AppDomain 및 `StardewValley.GameData` 어셈블리에서 해석합니다. 미래 단계는 `TASK_BLOCKED` 대신 영속 `GOAL WAITING` 체크포인트로 종료하며, 계획기 실패 뒤 수동 농사로 우회하지 않습니다.
 
