@@ -280,6 +280,8 @@ type StardewAgent struct {
 	toolMutex           sync.Mutex // Prevents concurrent tool execution
 }
 
+const maxObservationCalls = 180
+
 // NewStardewAgent creates a new Stardew agent using Copilot SDK
 func NewStardewAgent() (*StardewAgent, error) {
 	cfg, err := loadAIConfig()
@@ -337,7 +339,7 @@ func (a *StardewAgent) toolSessionConfig() *copilot.SessionConfig {
 			}
 			a.requestMu.Lock()
 			a.observationCount++
-			limitReached := a.observationCount > 60
+			limitReached := a.observationCount > maxObservationCalls
 			if limitReached && a.requestCancel != nil {
 				a.requestCancel()
 			}
@@ -1192,7 +1194,7 @@ If a function blocks, inspect its recovery hint and repair missing prerequisites
 			log.Printf("[TASK INCOMPLETE] Six requests used; stopping without success.")
 			return
 		}
-		requestCtx, cancelRequest := context.WithTimeout(context.Background(), 10*time.Minute)
+		requestCtx, cancelRequest := context.WithTimeout(context.Background(), 20*time.Minute)
 		a.requestMu.Lock()
 		a.requestCancel = cancelRequest
 		a.farmContext = requestCtx

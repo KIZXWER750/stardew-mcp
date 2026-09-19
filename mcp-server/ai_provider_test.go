@@ -266,7 +266,7 @@ func TestOpenAIRoundLimit(t *testing.T) {
 		return apiTestResponse(200, fmt.Sprintf(`{"status":"completed","output":[{"type":"function_call","call_id":"c%d","name":"observe","arguments":"{\"x\":1}"}]}`, calls)), nil
 	})
 	_, err := s.SendAndWait(context.Background(), copilot.MessageOptions{Prompt: "test"})
-	if err == nil || !strings.Contains(err.Error(), "ROUND_LIMIT") || calls != 60 {
+	if err == nil || !strings.Contains(err.Error(), "ROUND_LIMIT") || calls != maxAIToolRounds {
 		t.Fatal(err, calls)
 	}
 }

@@ -21,6 +21,7 @@ import (
 // Deliberately not configurable: this release uses Luna medium only on OpenAI.
 const openAIModel = "gpt-5.6-luna"
 const openAIEffort = "medium"
+const maxAIToolRounds = 180
 
 type agentSession interface {
 	SendAndWait(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error)
@@ -258,7 +259,7 @@ func sortedBoolKeys(values map[string]bool) string {
 
 func (s *openAISession) SendAndWait(ctx context.Context, options copilot.MessageOptions) (*copilot.SessionEvent, error) {
 	s.history = append(s.history, rawJSON(map[string]any{"role": "user", "content": options.Prompt}))
-	for round := 0; round < 60; round++ {
+	for round := 0; round < maxAIToolRounds; round++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
